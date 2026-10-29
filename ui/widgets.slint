@@ -341,3 +341,28 @@ export component SectionTitle inherits HorizontalLayout {
     Label { text: root.text; vertical-alignment: center; }
     VerticalLayout { alignment: center; Rectangle { height: 1px; background: Theme.line; } }
 }
+
+// Ein/Aus-Schalter
+export component Toggle inherits Rectangle {
+    in property <bool> on;
+    in property <string> tooltip;
+    callback toggled(bool);
+    width: 42px;
+    height: 24px;
+    horizontal-stretch: 0;
+    border-radius: 12px;
+    background: on ? Theme.acc : Theme.panel-3;
+    border-width: on ? 0 : 1px;
+    border-color: Theme.line-hi;
+    animate background { duration: 140ms; }
+    Rectangle {
+        width: 18px;
+        height: 18px;
+        y: 3px;
+        x: on ? parent.width - self.width - 3px : 3px;
+        border-radius: 9px;
+        background: on ? Theme.acc-ink : Theme.mut;
+        animate x { duration: 140ms; easing: ease-out; }
+    }
+    TouchArea { mouse-cursor: pointer; clicked => { root.toggled(!root.on); } }
+}

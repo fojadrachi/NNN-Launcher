@@ -11,6 +11,8 @@ Oberfläche mit [Slint](https://slint.dev). Schnell, klein (rund 20 MB) und ohne
 - **Ordner-Scan:** Dateien, die man selbst in `mods/`, `resourcepacks/` oder `shaderpacks/` legt, werden per Prüfsumme
   bei Modrinth erkannt und ins Pack übernommen; unbekannte zeigt der Launcher mit Name, Version und Icon aus der Datei.
   Von Hand gelöschte Dateien verschwinden automatisch aus der Liste.
+- **Inhalte verwalten:** Suchfeld im Pack, Version jedes Eintrags auf einen Blick, Mods/Texturepacks/Shader einzeln
+  ein- und ausschalten (Datei wird zu `<name>.disabled`, gilt nur lokal – der Sync lässt sie ausgeschaltet)
 - **Loader:** Fabric, Quilt, Forge, NeoForge und Vanilla
 - **Spielstart über den offiziellen Minecraft Launcher** (wie bei CurseForge): Der NNN Launcher legt ein Profil
   „NNN: &lt;Name&gt;“ an und öffnet den Launcher von Mojang mit eigenem Arbeitsordner. Anmeldung und Spieldateien

@@ -32,6 +32,8 @@ export struct ModItem {
     file: string,
     kind: string,
     dependency: bool,
+    enabled: bool,
+    local: bool,
     icon: image,
     has-icon: bool,
 }
@@ -137,6 +139,8 @@ export global AppState {
     in property <[ModItem]> shaders;
     in property <bool> has-shader-loader;
     in property <[ModItem]> local-items;
+    in-out property <string> content-filter;
+    in property <string> content-info;
     in property <bool> scanning;
     in property <string> pack-name;
     in property <string> pack-info;
@@ -219,6 +223,8 @@ export global AppState {
     callback remove-mod(string, string, string);
     callback open-folder(string);
     callback scan(string);
+    callback toggle-item(string, string, string, bool);
+    callback content-filter-changed();
     callback save-instance(string, string, string, string, int, string);
     callback delete-instance(string);
     callback publish(string, string, string, bool);

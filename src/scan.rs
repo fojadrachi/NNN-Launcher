@@ -97,6 +97,12 @@ pub async fn scan(inst: &Instance) -> Result<ScanResult> {
         let mut present = std::collections::HashSet::new();
         for e in std::fs::read_dir(&dir).into_iter().flatten().flatten() {
             let Ok(name) = e.file_name().into_string() else { continue };
+            if let Some(base) = name.strip_suffix(crate::instances::DISABLED) {
+                if ext_ok(k, base) {
+                    present.insert(base.to_lowercase());
+                }
+                continue;
+            }
             if !ext_ok(k, &name) || !e.path().is_file() {
                 continue;
             }

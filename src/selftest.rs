@@ -96,6 +96,20 @@ pub fn run() -> i32 {
         let adopt: Vec<(Kind, instances::ModEntry)> = r.found.iter().filter_map(|f| Some((f.kind?, f.entry.clone()?))).collect();
         let s = instances::adopt(&scan_inst.id, adopt, &r.missing)?;
         w(format!("Übernommen ins Pack: {}", s.manifest.mods.iter().map(|m| format!("{} ({})", m.name, m.file_name)).collect::<Vec<_>>().join(", ")));
+        // Ausschalten: umbenennen, Scan darf es nicht als gelöscht sehen, Sync lässt es aus
+        instances::set_enabled(&scan_inst.id, Kind::Mod, "von-hand-kopiert.jar", false)?;
+        let off_ok = mods_dir.join("von-hand-kopiert.jar.disabled").exists() && !mods_dir.join("von-hand-kopiert.jar").exists();
+        let r_off = scan::scan(&s).await?;
+        let synced = instances::apply_manifest(&scan_inst.id, s.manifest.clone(), 1, None, |_, _| {}).await?;
+        w(format!(
+            "Ausgeschaltet: umbenannt={off_ok}, Scan hält es für gelöscht={}, nach Sync noch aus={}, .jar neu geladen={}",
+            !r_off.missing.is_empty(),
+            instances::is_disabled(&scan_inst.id, Kind::Mod, "von-hand-kopiert.jar"),
+            mods_dir.join("von-hand-kopiert.jar").exists()
+        ));
+        instances::set_enabled(&scan_inst.id, Kind::Mod, "von-hand-kopiert.jar", true)?;
+        w(format!("Wieder eingeschaltet: {}", mods_dir.join("von-hand-kopiert.jar").exists() && !instances::is_disabled(&scan_inst.id, Kind::Mod, "von-hand-kopiert.jar")));
+        let s = synced;
         std::fs::remove_file(mods_dir.join("von-hand-kopiert.jar"))?;
         let r2 = scan::scan(&s).await?;
         let s2 = instances::adopt(&scan_inst.id, vec![], &r2.missing)?;

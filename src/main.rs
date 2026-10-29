@@ -120,6 +120,7 @@ fn screenshot_tour(ui: &AppWindow, dir: String) {
     let steps: Vec<(&str, &str, &str)> = vec![
         ("library", "", ""),
         ("instance", "mods", ""),
+        ("instance", "mods", "filter"),
         ("instance", "pack", ""),
         ("discover", "", ""),
         ("discover", "", "shader"),
@@ -162,6 +163,8 @@ fn screenshot_tour(ui: &AppWindow, dir: String) {
             s.set_kind(if extra == "shader" { 2 } else { 0 });
             s.invoke_search(false);
         }
+        s.set_content_filter(if extra == "filter" { std::env::var("NNN_SHOT_FILTER").unwrap_or_else(|_| "apple".into()).into() } else { "".into() });
+        s.invoke_content_filter_changed();
         s.set_page(page.into());
         if !tab.is_empty() {
             s.set_tab(tab.into());
@@ -294,6 +297,10 @@ fn wire(ui: &AppWindow, ctrl: &app::C) {
         }
     });
     on!(on_scan, |c, id: slint::SharedString| c.scan_instance(id.into(), true));
+    on!(on_toggle_item, |c, id: slint::SharedString, kind: slint::SharedString, file: slint::SharedString, enabled: bool| {
+        c.toggle_item(id.into(), instances::Kind::from_str(&kind), file.into(), enabled)
+    });
+    on!(on_content_filter_changed, |c| c.refresh());
     on!(on_open_folder, |_c, id: slint::SharedString| {
         let dir = instances::game_dir(&id);
         let _ = std::fs::create_dir_all(&dir);

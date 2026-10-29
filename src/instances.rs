@@ -298,9 +298,39 @@ pub async fn add_item(id: &str, k: Kind, m: ModEntry) -> Result<Instance> {
     Ok(i)
 }
 
+/// Ausgeschaltete Dateien heißen `<name>.disabled` (wie bei Modrinth/Prism) – Minecraft lädt sie dann nicht.
+pub const DISABLED: &str = ".disabled";
+
+fn disabled_path(p: &std::path::Path) -> PathBuf {
+    let mut s = p.as_os_str().to_owned();
+    s.push(DISABLED);
+    PathBuf::from(s)
+}
+
+/// Ist der Eintrag ausgeschaltet? (Datei liegt nur als .disabled vor)
+pub fn is_disabled(id: &str, k: Kind, file_name: &str) -> bool {
+    item_path(id, k, file_name).map(|p| !p.exists() && disabled_path(&p).exists()).unwrap_or(false)
+}
+
+/// Ein- oder ausschalten durch Umbenennen. Gilt nur lokal, das geteilte Pack bleibt unverändert.
+pub fn set_enabled(id: &str, k: Kind, file_name: &str, enabled: bool) -> Result<()> {
+    let on = item_path(id, k, file_name)?;
+    let off = disabled_path(&on);
+    let (from, to) = if enabled { (&off, &on) } else { (&on, &off) };
+    if from.exists() {
+        if to.exists() {
+            std::fs::remove_file(to)?;
+        }
+        std::fs::rename(from, to).map_err(|e| anyhow!("{file_name} konnte nicht umbenannt werden – läuft Minecraft noch? ({e})"))?;
+    }
+    Ok(())
+}
+
 pub fn remove_item(id: &str, k: Kind, file_name: &str) -> Result<Instance> {
     let mut i = get(id)?;
-    let _ = std::fs::remove_file(item_path(id, k, file_name)?);
+    let path = item_path(id, k, file_name)?;
+    let _ = std::fs::remove_file(disabled_path(&path));
+    let _ = std::fs::remove_file(path);
     i.manifest.list_mut(k).retain(|m| !m.file_name.eq_ignore_ascii_case(file_name));
     let rel = rel_path(k, file_name);
     i.managed_files.retain(|f| !f.eq_ignore_ascii_case(&rel));
@@ -308,7 +338,7 @@ pub fn remove_item(id: &str, k: Kind, file_name: &str) -> Result<Instance> {
     Ok(i)
 }
 
-/// Selbst hineinkopierte Dateien (nicht im Manifest)
+/// Selbst hineinkopierte Dateien (nicht im Manifest), ausgeschaltete mit ihrem normalen Namen
 pub fn local_files(i: &Instance, k: Kind) -> Vec<String> {
     let known: HashSet<String> = i.manifest.list(k).iter().map(|m| m.file_name.to_lowercase()).collect();
     let mut v: Vec<String> = std::fs::read_dir(i.game_dir().join(k.folder()))
@@ -316,9 +346,14 @@ pub fn local_files(i: &Instance, k: Kind) -> Vec<String> {
         .flatten()
         .flatten()
         .filter_map(|e| e.file_name().into_string().ok())
+        .map(|n| match n.strip_suffix(DISABLED) {
+            Some(base) => base.to_string(),
+            None => n,
+        })
         .filter(|n| k.ext_ok(n) && !known.contains(&n.to_lowercase()))
         .collect();
     v.sort();
+    v.dedup_by(|a, b| a.eq_ignore_ascii_case(b));
     v
 }
 
@@ -431,7 +466,12 @@ where
                 bail!("{}: keine Download-URL", m.name);
             }
             let rel = rel_path(k, &m.file_name);
-            items.push(net::DlItem { url: m.url.clone(), path: item_path(id, k, &m.file_name)?, sha1: m.sha1.clone(), size: m.size });
+            // Lokal ausgeschaltete Einträge bleiben aus (Datei wird ggf. als .disabled aktualisiert)
+            let mut path = item_path(id, k, &m.file_name)?;
+            if is_disabled(id, k, &m.file_name) {
+                path = disabled_path(&path);
+            }
+            items.push(net::DlItem { url: m.url.clone(), path, sha1: m.sha1.clone(), size: m.size });
             wanted.insert(rel.to_lowercase());
             managed.push(rel);
         }
@@ -453,6 +493,7 @@ where
     for old in &i.managed_files {
         if !wanted.contains(&old.to_lowercase()) {
             if let Ok(p) = paths::safe_join(&game, old) {
+                let _ = std::fs::remove_file(disabled_path(&p));
                 let _ = std::fs::remove_file(p);
             }
         }

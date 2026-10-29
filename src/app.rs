@@ -6,7 +6,7 @@ use crate::session::{self, User};
 use crate::{api, loaders, minecraft, mods, official, scan, updater, AppState, AppWindow};
 use crate::{HitItem, InstanceItem, MemberItem, ModItem, NotifItem, PackItem, ToastItem, UserItem, VersionItem};
 use anyhow::Result;
-use slint::{ComponentHandle, ModelRc, Rgba8Pixel, SharedPixelBuffer, SharedString, VecModel};
+use slint::{ComponentHandle, Model, ModelRc, Rgba8Pixel, SharedPixelBuffer, SharedString, VecModel};
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
@@ -168,6 +168,14 @@ impl Ctrl {
     fn reload_instances(self: &C) {
         let list = instances::list();
         self.with(|d| d.instances = list);
+        self.refresh();
+    }
+
+    pub fn toggle_item(self: &C, id: String, kind: Kind, file: String, enabled: bool) {
+        match instances::set_enabled(&id, kind, &file, enabled) {
+            Ok(()) => self.toast(format!("{} {}", file, if enabled { "eingeschaltet" } else { "ausgeschaltet" }), ""),
+            Err(e) => self.fail(e),
+        }
         self.refresh();
     }
 
@@ -1354,8 +1362,15 @@ fn apply(c: &C, ui: &AppWindow, d: &Data) {
     // Detail
     if let Some(cur) = d.current.as_ref().and_then(|id| d.instances.iter().find(|i| &i.id == id)) {
         s.set_current(inst_item(d, cur));
+        // Suchfeld im Inhalte-Tab: Name, Datei oder Version
+        let filter = s.get_content_filter().to_lowercase();
+        let matches = |name: &str, file: &str, version: &str| {
+            filter.is_empty() || [name, file, version].iter().any(|x| x.to_lowercase().contains(filter.trim()))
+        };
+        let total: usize = Kind::ALL.iter().map(|k| cur.manifest.list(*k).len()).sum();
         let items = |k: Kind| {
             let mut v = cur.manifest.list(k).clone();
+            v.retain(|m| matches(&m.name, &m.file_name, m.version_name.as_deref().unwrap_or("")));
             v.sort_by_key(|m| m.name.to_lowercase());
             model(
                 v.iter()
@@ -1368,6 +1383,8 @@ fn apply(c: &C, ui: &AppWindow, d: &Data) {
                             file: m.file_name.clone().into(),
                             kind: k.key().into(),
                             dependency: m.dependency,
+                            enabled: !instances::is_disabled(&cur.id, k, &m.file_name),
+                            local: false,
                             icon,
                             has_icon,
                         }
@@ -1375,9 +1392,23 @@ fn apply(c: &C, ui: &AppWindow, d: &Data) {
                     .collect(),
             )
         };
-        s.set_mods(items(Kind::Mod));
-        s.set_resourcepacks(items(Kind::ResourcePack));
-        s.set_shaders(items(Kind::Shader));
+        let mods_m = items(Kind::Mod);
+        let packs_m = items(Kind::ResourcePack);
+        let shaders_m = items(Kind::Shader);
+        let shown = mods_m.row_count() + packs_m.row_count() + shaders_m.row_count();
+        let off: usize = Kind::ALL.iter().map(|k| cur.manifest.list(*k).iter().filter(|m| instances::is_disabled(&cur.id, *k, &m.file_name)).count()).sum();
+        s.set_content_info(
+            (if filter.trim().is_empty() {
+                format!("{} Mods · {} Texturepacks · {} Shader{}", cur.manifest.mods.len(), cur.manifest.resourcepacks.len(), cur.manifest.shaders.len(), if off > 0 { format!(" · {off} ausgeschaltet") } else { String::new() })
+            } else {
+                format!("{shown} von {total} Einträgen passen zu „{}“", filter.trim())
+            })
+            .into(),
+        );
+        let local_total: usize = Kind::ALL.iter().map(|k| instances::local_files(cur, *k).len()).sum();
+        s.set_mods(mods_m);
+        s.set_resourcepacks(packs_m);
+        s.set_shaders(shaders_m);
         s.set_has_shader_loader(cur.has_shader_loader());
         let found = d.scan_found.get(&cur.id);
         let local: Vec<ModItem> = Kind::ALL
@@ -1396,18 +1427,27 @@ fn apply(c: &C, ui: &AppWindow, d: &Data) {
                     .or_else(|| info.map(|i| i.meta_version.clone()).filter(|v| !v.is_empty()))
                     .unwrap_or_default();
                 let origin = if entry.is_some() { "Modrinth" } else { "nicht erkannt" };
+                let enabled = !instances::is_disabled(&cur.id, k, &f);
                 ModItem {
                     name: name.into(),
-                    version: (if version.is_empty() { f.clone() } else { format!("{version} · {f}") }).into(),
+                    version: version.into(),
                     source: format!("{} · {origin}", k.label()).into(),
                     file: f.into(),
                     kind: k.key().into(),
                     dependency: false,
+                    enabled,
+                    local: true,
                     icon,
                     has_icon,
                 }
             })
+            .filter(|m: &ModItem| matches(&m.name, &m.file, &m.version))
             .collect();
+        if !filter.trim().is_empty() {
+            s.set_content_info(
+                format!("{} von {} Einträgen passen zu „{}“", shown + local.len(), total + local_total, filter.trim()).into(),
+            );
+        }
         s.set_local_items(model(local));
         s.set_scanning(d.scanning.contains(&cur.id));
         let me = user.map(|u| u.id).unwrap_or(0);

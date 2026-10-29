@@ -1,6 +1,6 @@
 import { ScrollView, ComboBox } from "std-widgets.slint";
 import { Theme, Icons } from "theme.slint";
-import { Button, IconButton, Icon, Tag, Monogram, Card, ProgressBar, Label, SectionTitle, Thumb, Field, Segmented } from "widgets.slint";
+import { Button, IconButton, Icon, Tag, Monogram, Card, ProgressBar, Label, SectionTitle, Thumb, Field, Segmented, Toggle } from "widgets.slint";
 import { AppState, ModItem } from "state.slint";
 import { InstanceTags } from "library.slint";
 
@@ -41,20 +41,44 @@ component ItemRow inherits Card {
         padding-left: 12px;
         padding-right: 12px;
         spacing: 14px;
-        VerticalLayout { alignment: center; Thumb { img: m.icon; has-img: m.has-icon; fallback: m.name; size: 42px; } }
+        VerticalLayout {
+            alignment: center;
+            Thumb { img: m.icon; has-img: m.has-icon; fallback: m.name; size: 42px; opacity: m.enabled ? 1 : 0.4; }
+        }
         VerticalLayout {
             alignment: center;
             spacing: 2px;
+            horizontal-stretch: 1;
             HorizontalLayout {
                 spacing: 8px;
                 alignment: start;
-                Text { text: m.name; color: Theme.fg; font-weight: 600; font-size: 14px; overflow: elide; }
+                Text { text: m.name; color: m.enabled ? Theme.fg : Theme.dim; font-weight: 600; font-size: 14px; overflow: elide; }
                 if m.dependency: Tag { text: "Abhängigkeit"; }
+                if !m.enabled: Tag { text: "aus"; kind: "warn"; }
             }
-            Text { text: m.version + " · " + m.source; color: Theme.mut; font-size: 12px; font-family: Theme.mono; overflow: elide; }
+            Text { text: m.source + " · " + m.file; color: Theme.dim; font-size: 12px; overflow: elide; }
         }
-        Rectangle { horizontal-stretch: 1; }
-        if AppState.current.can-edit: VerticalLayout {
+        // Version gut sichtbar in eigener Spalte
+        VerticalLayout {
+            alignment: center;
+            width: 230px;
+            Text {
+                text: m.version != "" ? m.version : "–";
+                color: m.enabled ? Theme.acc : Theme.dim;
+                font-family: Theme.mono;
+                font-size: 12px;
+                horizontal-alignment: right;
+                overflow: elide;
+            }
+        }
+        VerticalLayout {
+            alignment: center;
+            Toggle {
+                on: m.enabled;
+                toggled(v) => { AppState.toggle-item(AppState.current.id, m.kind, m.file, v); }
+            }
+        }
+        if AppState.current.can-edit || m.local: VerticalLayout {
             alignment: center;
             IconButton { icon: Icons.trash; tint: Theme.bad; clicked => { AppState.remove-mod(AppState.current.id, m.kind, m.file); } }
         }
@@ -100,12 +124,15 @@ component ModsTab inherits VerticalLayout {
     spacing: 10px;
     HorizontalLayout {
         spacing: 10px;
-        Text {
-            text: AppState.mods.length + " Mods · " + AppState.resourcepacks.length + " Texturepacks · " + AppState.shaders.length + " Shader";
-            color: Theme.mut;
-            vertical-alignment: center;
+        Field {
+            width: 340px;
+            pill: true;
+            icon: Icons.search;
+            placeholder: "In diesem Pack suchen …";
+            text <=> AppState.content-filter;
+            edited => { AppState.content-filter-changed(); }
         }
-        Rectangle { horizontal-stretch: 1; }
+        Text { text: AppState.content-info; color: Theme.mut; vertical-alignment: center; overflow: elide; horizontal-stretch: 1; }
         Button { text: AppState.scanning ? "Scannt …" : "Ordner scannen"; icon: Icons.search; busy: AppState.scanning; clicked => { AppState.scan(AppState.current.id); } }
         Button { text: "Ordner"; icon: Icons.folder; clicked => { AppState.open-folder(AppState.current.id); } }
     }
