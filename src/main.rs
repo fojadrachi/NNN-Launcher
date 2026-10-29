@@ -9,6 +9,7 @@ mod minecraft;
 mod mods;
 mod net;
 mod official;
+mod p2p;
 mod paths;
 mod scan;
 mod selftest;
@@ -24,6 +25,18 @@ use std::os::windows::process::CommandExt;
 const PIPE: &str = r"\\.\pipe\NNNLauncher-DeepLink";
 
 fn main() -> Result<(), slint::PlatformError> {
+    #[cfg(debug_assertions)]
+    {
+        let args: Vec<String> = std::env::args().collect();
+        if args.get(1).map(String::as_str) == Some("--p2pseed") {
+            paths::ensure();
+            std::process::exit(selftest::p2p_seed(&args[2], args.get(3).and_then(|s| s.parse().ok()).unwrap_or(60)));
+        }
+        if args.get(1).map(String::as_str) == Some("--p2pfetch") {
+            paths::ensure();
+            std::process::exit(selftest::p2p_fetch(&args[2]));
+        }
+    }
     #[cfg(debug_assertions)]
     if std::env::args().any(|a| a == "--synctest") {
         paths::ensure();
@@ -83,6 +96,16 @@ fn main() -> Result<(), slint::PlatformError> {
         c.refresh_server().await;
         c.check_update(false).await;
     });
+    // P2P-Knoten starten, eigene Dateien anbieten und fehlende nachladen (jede Minute)
+    if !dev {
+        ctrl.spawn(|c| async move {
+            let _ = p2p::start().await;
+            loop {
+                c.p2p_tick().await;
+                tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+            }
+        });
+    }
     ctrl.spawn(|c| async move {
         let mut tick = 0u64;
         loop {
@@ -310,10 +333,10 @@ fn wire(ui: &AppWindow, ctrl: &app::C) {
         c.save_instance(id.into(), name.into(), mem.into(), mc.into(), loader, lv.into())
     });
     on!(on_delete_instance, |c, id: slint::SharedString| c.confirmed_delete(id.into()));
-    on!(on_publish, |c, id: slint::SharedString, name: slint::SharedString, desc: slint::SharedString, configs: bool| {
-        c.publish(id.into(), name.into(), desc.into(), configs)
+    on!(on_publish, |c, id: slint::SharedString, name: slint::SharedString, desc: slint::SharedString, configs: bool, local: bool| {
+        c.publish(id.into(), name.into(), desc.into(), configs, local)
     });
-    on!(on_push, |c, id: slint::SharedString, log: slint::SharedString, configs: bool| c.push(id.into(), log.into(), configs));
+    on!(on_push, |c, id: slint::SharedString, log: slint::SharedString, configs: bool, local: bool| c.push(id.into(), log.into(), configs, local));
     on!(on_share, |c, id: slint::SharedString, days: i32, uses: i32| c.share(id.into(), days, uses));
     on!(on_join_check, |c, code: slint::SharedString| c.join_check(code.into()));
     on!(on_join, |c, code: slint::SharedString| c.join(code.into()));

@@ -82,6 +82,10 @@ fn needs_download(i: &DlItem) -> bool {
 }
 
 pub async fn download_one(item: &DlItem) -> Result<()> {
+    // Dateien, die Freunde direkt untereinander tauschen
+    if item.url.starts_with(crate::p2p::SCHEME) {
+        return crate::p2p::fetch(item).await;
+    }
     if let Some(dir) = item.path.parent() {
         tokio::fs::create_dir_all(dir).await?;
     }

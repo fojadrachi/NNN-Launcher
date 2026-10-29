@@ -1,6 +1,6 @@
 [package]
 name = "nnn-launcher"
-version = "2.3.0"
+version = "2.4.0"
 edition = "2021"
 description = "NNN Launcher – Minecraft-Modpacks mit Freunden teilen und synchron halten"
 license = "UNLICENSED"
@@ -36,6 +36,7 @@ windows-sys = { version = "0.59", features = [
     "Win32_System_Threading",
     "Win32_System_Memory",
 ] }
+iroh = "1.4.1"
 
 [build-dependencies]
 slint-build = "1"

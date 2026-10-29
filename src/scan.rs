@@ -112,6 +112,10 @@ pub async fn scan(inst: &Instance) -> Result<ScanResult> {
             }
         }
         for m in inst.manifest.list(k) {
+            // P2P-Dateien, die noch geladen werden, sind nicht "von Hand gelöscht"
+            if m.url.starts_with(crate::p2p::SCHEME) {
+                continue;
+            }
             if !present.contains(&m.file_name.to_lowercase()) {
                 result.missing.push((k, m.file_name.clone()));
             }
@@ -316,3 +320,6 @@ fn read_meta(path: &Path) -> (String, String, Option<Vec<u8>>) {
     };
     (clean(name), clean(version), icon)
 }
+
+/// SHA-1 einer Datei (gecacht)
+pub fn sha1_of(path: &Path) -> Result<String> { Ok(hashes(path)?.sha1) }

@@ -11,6 +11,9 @@ Oberfläche mit [Slint](https://slint.dev). Schnell, klein (rund 20 MB) und ohne
 - **Ordner-Scan:** Dateien, die man selbst in `mods/`, `resourcepacks/` oder `shaderpacks/` legt, werden per Prüfsumme
   bei Modrinth erkannt und ins Pack übernommen; unbekannte zeigt der Launcher mit Name, Version und Icon aus der Datei.
   Von Hand gelöschte Dateien verschwinden automatisch aus der Liste.
+- **Eigene Dateien per P2P teilen:** Mods, die es nicht auf Modrinth gibt, tauschen Mitglieder direkt untereinander
+  (iroh/QUIC, Ende-zu-Ende verschlüsselt, Hole Punching mit Relay-Fallback). Der Server vermittelt nur, wer welche
+  Datei hat und online ist; Dateien gehen nur an Mitglieder desselben Packs. Jeder, der eine Datei hat, gibt sie weiter.
 - **Inhalte verwalten:** Suchfeld im Pack, Version jedes Eintrags auf einen Blick, Mods/Texturepacks/Shader einzeln
   ein- und ausschalten (Datei wird zu `<name>.disabled`, gilt nur lokal – der Sync lässt sie ausgeschaltet)
 - **Loader:** Fabric, Quilt, Forge, NeoForge und Vanilla

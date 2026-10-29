@@ -232,14 +232,16 @@ export component PublishDialog inherits Dialog {
     property <string> name: AppState.current.name;
     property <string> desc;
     property <bool> configs: true;
+    property <bool> local: true;
     Label { text: "NAME"; }
     Field { text <=> name; }
     Label { text: "BESCHREIBUNG (OPTIONAL)"; }
     TextArea { text <=> desc; placeholder: "Worum geht's?"; }
     Check { text: "Config-Dateien mitschicken (config, defaultconfigs, kubejs)"; checked <=> configs; }
+    if AppState.local-count > 0: Check { text: "Eigene Dateien direkt mit Freunden teilen (P2P, " + AppState.local-count + ")"; checked <=> local; }
     Actions {
         Button { text: "Abbrechen"; clicked => { AppState.modal = ""; } }
-        Button { text: "Hochladen"; icon: Icons.upload; kind: "primary"; busy: AppState.modal-busy; clicked => { AppState.publish(AppState.current.id, name, desc, configs); } }
+        Button { text: "Hochladen"; icon: Icons.upload; kind: "primary"; busy: AppState.modal-busy; clicked => { AppState.publish(AppState.current.id, name, desc, configs, local); } }
     }
 }
 
@@ -247,13 +249,21 @@ export component PushDialog inherits Dialog {
     title: "Update veröffentlichen";
     property <string> changelog;
     property <bool> configs: true;
+    property <bool> local: true;
     Text { text: "Alle Mitglieder von „" + AppState.current.name + "“ sehen das Update und laden es mit einem Klick. (" + AppState.current.mod-count + " Mods)"; color: Theme.mut; wrap: word-wrap; }
     Label { text: "WAS IST NEU?"; }
     TextArea { text <=> changelog; placeholder: "z. B. Create + Farmer's Delight dazu, JEI aktualisiert"; }
     Check { text: "Config-Dateien mitschicken"; checked <=> configs; }
+    if AppState.local-count > 0: Check { text: "Eigene Dateien direkt mit Freunden teilen (P2P, " + AppState.local-count + ")"; checked <=> local; }
+    if AppState.local-count > 0 && local: Text {
+        text: "Freunde laden diese Dateien direkt von dir oder anderen Mitgliedern, die sie schon haben – dafür muss jemand davon online sein.";
+        color: Theme.mut;
+        font-size: 12px;
+        wrap: word-wrap;
+    }
     Actions {
         Button { text: "Abbrechen"; clicked => { AppState.modal = ""; } }
-        Button { text: "Veröffentlichen"; icon: Icons.upload; kind: "primary"; busy: AppState.modal-busy; clicked => { AppState.push(AppState.current.id, changelog, configs); } }
+        Button { text: "Veröffentlichen"; icon: Icons.upload; kind: "primary"; busy: AppState.modal-busy; clicked => { AppState.push(AppState.current.id, changelog, configs, local); } }
     }
 }
 

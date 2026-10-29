@@ -216,3 +216,95 @@ pub fn sync_test() -> i32 {
         Err(e) => { w(format!("FEHLER: {e:#}")); 1 }
     }
 }
+
+/// Entwickler-Test P2P, Teil 1 (Ersteller): Pack mit eigener Datei teilen und anbieten.
+/// Schreibt Pack-ID und Code nach `<out>` und bietet die Datei `secs` Sekunden lang an.
+#[cfg(debug_assertions)]
+pub fn p2p_seed(out: &str, secs: u64) -> i32 {
+    use crate::{api, p2p};
+    let rt = tokio::runtime::Runtime::new().expect("Tokio");
+    let res: anyhow::Result<()> = rt.block_on(async {
+        let r = match api::login("admin", "admintest1432").await { Ok(r) => r, Err(_) => api::register("admin", "admintest1432").await? };
+        api::set_token(Some(r.token));
+        let inst = instances::create("P2P Ersteller", "1.20.1", "fabric", Some("0.20.1".into()))?;
+        // Eine "selbst gebaute" Mod (gibt es nirgends online), 3 MB groß
+        let path = inst.game_dir().join("mods").join("eigener-mod-1.0.jar");
+        let mut data = Vec::new();
+        {
+            let mut z = zip::ZipWriter::new(std::io::Cursor::new(&mut data));
+            let o = zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
+            z.start_file("fabric.mod.json", o)?;
+            z.write_all(br#"{"schemaVersion":1,"id":"eigen","name":"Eigener Mod","version":"1.0"}"#)?;
+            z.start_file("daten.bin", o)?;
+            let mut x: u32 = 12345;
+            for _ in 0..(3 * 1024 * 1024) {
+                x = x.wrapping_mul(1103515245).wrapping_add(12345);
+                z.write_all(&[(x >> 16) as u8])?;
+            }
+            z.finish()?;
+        }
+        std::fs::write(&path, &data)?;
+        let sha1 = crate::net::sha1_bytes(&data);
+        let pack = api::create_pack(&inst.name, "", &instances::build_manifest(&inst, false)?).await?;
+        let entry = instances::ModEntry {
+            source: "p2p".into(), project_id: sha1.clone(), version_id: sha1.clone(), name: "Eigener Mod".into(),
+            version_name: Some("1.0".into()), file_name: "eigener-mod-1.0.jar".into(), url: p2p::url(&pack.id, &sha1),
+            sha1: Some(sha1.clone()), size: data.len() as u64, ..Default::default()
+        };
+        let inst = instances::adopt(&inst.id, vec![(Kind::Mod, entry)], &[])?;
+        let v = api::push_version(&pack.id, 1, &instances::build_manifest(&inst, false)?, "eigene Datei").await?;
+        instances::link_pack(&inst.id, &pack.id, v, "owner")?;
+        let share = api::create_share(&pack.id, 0, 0).await?;
+        let id = p2p::node_id().await?;
+        let n = p2p::announce().await?;
+        std::fs::write(out, format!("{} {} {} {}", pack.id, share.code, sha1, inst.id))?;
+        println!("Ersteller {id} bietet {n} Datei(en) an, Pack {} Code {}", pack.id, share.code);
+        let start = std::time::Instant::now();
+        while start.elapsed().as_secs() < secs {
+            tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+            let _ = p2p::announce().await;
+        }
+        Ok(())
+    });
+    match res { Ok(()) => 0, Err(e) => { println!("FEHLER Ersteller: {e:#}"); 1 } }
+}
+
+/// Entwickler-Test P2P, Teil 2 (Freund): beitreten und die Datei direkt vom Ersteller laden.
+#[cfg(debug_assertions)]
+pub fn p2p_fetch(info: &str) -> i32 {
+    use crate::{api, p2p};
+    let rt = tokio::runtime::Runtime::new().expect("Tokio");
+    let res: anyhow::Result<()> = rt.block_on(async {
+        let s = std::fs::read_to_string(info)?;
+        let parts: Vec<&str> = s.split_whitespace().collect();
+        let (pack_id, code, sha1) = (parts[0], parts[1], parts[2]);
+        let r = match api::login("freund1", "admintest1432").await { Ok(r) => r, Err(_) => api::register("freund1", "admintest1432").await? };
+        api::set_token(Some(r.token));
+        api::join(code).await?;
+        // Eigene iroh-ID beim Server bekannt machen, damit der Ersteller uns als Mitglied erkennt
+        let me = p2p::node_id().await?;
+        p2p::announce().await?;
+        println!("Freund {me} ist beigetreten, Anbieter laut Server: {:?}", api::p2p_peers(pack_id, sha1).await?);
+        let v = api::latest(pack_id).await?;
+        let b = instances::create("P2P Freund", &v.manifest.minecraft, &v.manifest.loader, v.manifest.loader_version.clone())?;
+        instances::link_pack(&b.id, pack_id, 0, "member")?;
+        let t0 = std::time::Instant::now();
+        let b = instances::apply_manifest(&b.id, v.manifest, v.version, Some("member".into()), |_, _| {}).await?;
+        let path = b.game_dir().join("mods").join("eigener-mod-1.0.jar");
+        let ok = path.exists() && crate::net::sha1_file(&path)? == sha1;
+        println!(
+            "Übertragung: Datei da und Prüfsumme korrekt = {ok}, {:.1} MB in {:.1} s",
+            std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0) as f64 / 1048576.0,
+            t0.elapsed().as_secs_f64()
+        );
+        // Ein Fremder ohne Mitgliedschaft darf nichts bekommen
+        let outsider = match api::login("fremder", "admintest1432").await { Ok(r) => r, Err(_) => api::register("fremder", "admintest1432").await? };
+        api::set_token(Some(outsider.token));
+        let denied = api::p2p_peers(pack_id, sha1).await.is_err();
+        println!("Fremder ohne Mitgliedschaft bekommt keine Anbieterliste = {denied}");
+        instances::delete(&b.id)?;
+        if !ok { anyhow::bail!("Datei fehlt nach dem Sync"); }
+        Ok(())
+    });
+    match res { Ok(()) => 0, Err(e) => { println!("FEHLER Freund: {e:#}"); 1 } }
+}

@@ -3,7 +3,7 @@
 use crate::instances::{self, Instance, Kind};
 use crate::settings::{self, Event, NotifStore, Outgoing, Settings};
 use crate::session::{self, User};
-use crate::{api, loaders, minecraft, mods, official, scan, updater, AppState, AppWindow};
+use crate::{api, loaders, minecraft, mods, official, p2p, scan, updater, AppState, AppWindow};
 use crate::{HitItem, InstanceItem, MemberItem, ModItem, NotifItem, PackItem, ToastItem, UserItem, VersionItem};
 use anyhow::Result;
 use slint::{ComponentHandle, Model, ModelRc, Rgba8Pixel, SharedPixelBuffer, SharedString, VecModel};
@@ -56,6 +56,8 @@ pub struct Data {
     /// Dateien im Instanzordner, die nicht im Pack sind (nach Ordner-Scan)
     scan_found: HashMap<String, Vec<scan::Found>>,
     scanning: HashSet<String>,
+    /// Gerade laufende P2P-Nachlade-Vorgänge (Instanz-IDs)
+    p2p_fetching: HashSet<String>,
 }
 
 pub struct Ctrl {
@@ -802,7 +804,72 @@ impl Ctrl {
         }
     }
 
-    pub fn publish(self: &C, id: String, name: String, desc: String, configs: bool) {
+    /// Nimmt lokale (nicht auf Modrinth bekannte) Dateien als P2P-Einträge ins Pack auf
+    async fn share_local(self: &C, id: &str, pack_id: &str) -> Result<(Instance, usize)> {
+        let inst = instances::get(id)?;
+        let found = self.with(|d| d.scan_found.get(id).cloned().unwrap_or_default());
+        let mut add = Vec::new();
+        for k in Kind::ALL {
+            for f in instances::local_files(&inst, k) {
+                let Some(path) = instances::existing_path(id, k, &f) else { continue };
+                let p = path.clone();
+                let sha1 = tokio::task::spawn_blocking(move || scan::sha1_of(&p)).await??;
+                let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+                let info = found.iter().find(|x| x.file_name.eq_ignore_ascii_case(&f));
+                add.push((
+                    k,
+                    instances::ModEntry {
+                        source: "p2p".into(),
+                        project_id: sha1.clone(),
+                        version_id: sha1.clone(),
+                        name: info.map(|i| i.meta_name.clone()).filter(|n| !n.is_empty()).unwrap_or_else(|| f.clone()),
+                        version_name: info.map(|i| i.meta_version.clone()).filter(|v| !v.is_empty()),
+                        file_name: f.clone(),
+                        url: p2p::url(pack_id, &sha1),
+                        sha1: Some(sha1),
+                        size,
+                        ..Default::default()
+                    },
+                ));
+            }
+        }
+        let n = add.len();
+        let i = if n > 0 { instances::adopt(id, add, &[])? } else { inst };
+        Ok((i, n))
+    }
+
+    /// P2P: eigene Dateien beim Server melden und fehlende von Freunden nachladen
+    pub async fn p2p_tick(self: &C) {
+        if !api::logged_in() {
+            return;
+        }
+        let _ = p2p::announce().await;
+        for inst in self.with(|d| d.instances.clone()) {
+            let pending = instances::pending_p2p(&inst);
+            if pending.is_empty() || !self.with(|d| d.p2p_fetching.insert(inst.id.clone())) {
+                continue;
+            }
+            let c = self.clone();
+            self.rt.spawn(async move {
+                let mut got = 0;
+                for (k, m) in &pending {
+                    let path = instances::game_dir(&inst.id).join(k.folder()).join(&m.file_name);
+                    let item = crate::net::DlItem { url: m.url.clone(), path, sha1: m.sha1.clone(), size: m.size };
+                    if crate::net::download_one(&item).await.is_ok() {
+                        got += 1;
+                    }
+                }
+                c.with(|d| d.p2p_fetching.remove(&inst.id));
+                if got > 0 {
+                    c.toast(format!("„{}“: {got} Datei(en) von Freunden geladen", inst.name), "");
+                    let _ = p2p::announce().await;
+                }
+                c.refresh();
+            });
+        }
+    }
+
+    pub fn publish(self: &C, id: String, name: String, desc: String, configs: bool, local: bool) {
         self.with(|d| d.modal_busy = true);
         self.refresh();
         self.spawn(move |c| async move {
@@ -815,8 +882,19 @@ impl Ctrl {
                 }
                 let manifest = instances::build_manifest(&inst, configs)?;
                 let pack = api::create_pack(&inst.name, &desc, &manifest).await?;
-                let i = instances::link_pack(&id, &pack.id, 1, "owner")?;
-                c.report(pack.id.clone(), 1);
+                let mut i = instances::link_pack(&id, &pack.id, 1, "owner")?;
+                let mut version = 1;
+                // Eigene Dateien brauchen die Pack-ID für ihre P2P-Adresse, daher gleich als Version 2
+                if local {
+                    let (with_local, n) = c.share_local(&id, &pack.id).await?;
+                    if n > 0 {
+                        let m = instances::build_manifest(&with_local, configs)?;
+                        version = api::push_version(&pack.id, 1, &m, &format!("{n} eigene Datei(en) per P2P")).await?;
+                        i = instances::link_pack(&id, &pack.id, version, "owner")?;
+                    }
+                }
+                c.report(pack.id.clone(), version);
+                let _ = p2p::announce().await;
                 c.upsert(i);
                 c.refresh_server().await;
                 Ok(())
@@ -842,17 +920,21 @@ impl Ctrl {
         });
     }
 
-    pub fn push(self: &C, id: String, changelog: String, configs: bool) {
+    pub fn push(self: &C, id: String, changelog: String, configs: bool, local: bool) {
         self.with(|d| d.modal_busy = true);
         self.refresh();
         self.spawn(move |c| async move {
             let res: Result<i64> = async {
-                let inst = instances::get(&id)?;
+                let mut inst = instances::get(&id)?;
                 let pid = inst.pack_id.clone().ok_or_else(|| anyhow::anyhow!("Instanz ist nicht geteilt"))?;
+                if local {
+                    inst = c.share_local(&id, &pid).await?.0;
+                }
                 let manifest = instances::build_manifest(&inst, configs)?;
                 let v = api::push_version(&pid, inst.pack_version, &manifest, &changelog).await?;
                 let i = instances::link_pack(&id, &pid, v, inst.pack_role.as_deref().unwrap_or("owner"))?;
                 c.report(pid.clone(), v);
+                let _ = p2p::announce().await;
                 c.upsert(i);
                 c.refresh_server().await;
                 Ok(v)
@@ -1378,8 +1460,13 @@ fn apply(c: &C, ui: &AppWindow, d: &Data) {
                         let (icon, has_icon) = image_of(d, m.icon_url.as_deref());
                         ModItem {
                             name: m.name.clone().into(),
-                            version: m.version_name.clone().unwrap_or_else(|| m.file_name.clone()).into(),
-                            source: (if m.source == "curseforge" { "CurseForge" } else { "Modrinth" }).into(),
+                            version: (if m.source == "p2p" && instances::existing_path(&cur.id, k, &m.file_name).is_none() {
+                                "wartet auf Freund (online)".to_string()
+                            } else {
+                                m.version_name.clone().unwrap_or_else(|| m.file_name.clone())
+                            })
+                            .into(),
+                            source: (match m.source.as_str() { "curseforge" => "CurseForge", "p2p" => "Freunde (P2P)", _ => "Modrinth" }).into(),
                             file: m.file_name.clone().into(),
                             kind: k.key().into(),
                             dependency: m.dependency,
@@ -1448,6 +1535,7 @@ fn apply(c: &C, ui: &AppWindow, d: &Data) {
                 format!("{} von {} Einträgen passen zu „{}“", shown + local.len(), total + local_total, filter.trim()).into(),
             );
         }
+        s.set_local_count(local_total as i32);
         s.set_local_items(model(local));
         s.set_scanning(d.scanning.contains(&cur.id));
         let me = user.map(|u| u.id).unwrap_or(0);

@@ -307,6 +307,26 @@ fn disabled_path(p: &std::path::Path) -> PathBuf {
     PathBuf::from(s)
 }
 
+/// Pfad der vorhandenen Datei (eingeschaltet oder als .disabled), falls sie da ist
+pub fn existing_path(id: &str, k: Kind, file_name: &str) -> Option<PathBuf> {
+    let p = item_path(id, k, file_name).ok()?;
+    if p.exists() {
+        return Some(p);
+    }
+    let d = disabled_path(&p);
+    d.exists().then_some(d)
+}
+
+/// P2P-Einträge, deren Datei hier noch fehlt (wird nachgeladen, sobald ein Freund online ist)
+pub fn pending_p2p(i: &Instance) -> Vec<(Kind, ModEntry)> {
+    Kind::ALL
+        .iter()
+        .flat_map(|k| i.manifest.list(*k).iter().map(move |m| (*k, m)))
+        .filter(|(k, m)| m.url.starts_with(crate::p2p::SCHEME) && existing_path(&i.id, *k, &m.file_name).is_none())
+        .map(|(k, m)| (k, m.clone()))
+        .collect()
+}
+
 /// Ist der Eintrag ausgeschaltet? (Datei liegt nur als .disabled vor)
 pub fn is_disabled(id: &str, k: Kind, file_name: &str) -> bool {
     item_path(id, k, file_name).map(|p| !p.exists() && disabled_path(&p).exists()).unwrap_or(false)
@@ -480,8 +500,15 @@ where
         wanted.insert(o.path.to_lowercase());
         managed.push(o.path.clone());
     }
-    // Erst alles laden, dann löschen – so bleibt die Instanz bei Fehlern spielbar
+    // Erst alles laden, dann löschen – so bleibt die Instanz bei Fehlern spielbar.
+    // P2P-Dateien sind "best effort": Ist gerade niemand online, der sie hat, kommen sie später.
+    let (p2p_items, items): (Vec<_>, Vec<_>) = items.into_iter().partition(|i: &net::DlItem| i.url.starts_with(crate::p2p::SCHEME));
     net::download_all(items, 8, progress).await?;
+    for item in p2p_items {
+        if !item.path.exists() {
+            let _ = net::download_one(&item).await;
+        }
+    }
     for o in &manifest.overrides {
         let p = paths::safe_join(&game, &o.path)?;
         if p.exists() && net::sha1_file(&p).ok().as_deref() == Some(o.sha1.as_str()) {

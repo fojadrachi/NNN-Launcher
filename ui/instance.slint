@@ -171,7 +171,7 @@ component ModsTab inherits VerticalLayout {
     if AppState.local-items.length > 0: Section { title: "NUR LOKAL"; count: AppState.local-items.length; can-add: false; }
     if AppState.local-items.length > 0: Text {
         text: AppState.current.can-edit
-            ? "Diese Dateien liegen im Ordner, sind aber nicht auf Modrinth zu finden (z. B. selbst gebaute Mods). Sie werden nicht mit dem Pack geteilt."
+            ? "Diese Dateien sind nicht auf Modrinth zu finden. Beim Veröffentlichen kannst du sie per P2P direkt mit deinen Freunden teilen."
             : "Diese Dateien hast du selbst hinzugefügt. Sie gehören nicht zum geteilten Pack und werden beim Sync nicht angefasst.";
         color: Theme.mut;
         font-size: 12px;

@@ -181,6 +181,31 @@ struct SharePreview { pack: SharePack }
 pub async fn share_preview(code: &str) -> Result<SharePack> { Ok(get::<SharePreview>(&format!("/share/{code}")).await?.pack) }
 pub async fn join(code: &str) -> Result<Pack> { Ok(serde_json::from_value::<PackOne>(post(&format!("/share/{code}/join"), json!({})).await?)?.pack) }
 
+// ---------- P2P-Vermittlung ----------
+
+/// Meldet die eigene iroh-ID und welche P2P-Dateien dieser Launcher pro Pack anbietet
+pub async fn p2p_announce(node_id: &str, packs: &std::collections::HashMap<String, Vec<String>>) -> Result<()> {
+    let list: Vec<Value> = packs.iter().map(|(p, f)| json!({ "packId": p, "files": f })).collect();
+    post("/p2p/announce", json!({ "nodeId": node_id, "packs": list })).await.map(|_| ())
+}
+
+/// Wer ist online und hat diese Datei? (iroh-ID, Benutzername)
+pub async fn p2p_peers(pack_id: &str, sha1: &str) -> Result<Vec<(String, String)>> {
+    let v: Value = get(&format!("/packs/{pack_id}/peers?sha1={sha1}")).await?;
+    Ok(v["peers"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|p| Some((p["nodeId"].as_str()?.to_string(), p["username"].as_str().unwrap_or("?").to_string())))
+        .collect())
+}
+
+/// iroh-IDs aller Mitglieder eines Packs
+pub async fn p2p_nodes(pack_id: &str) -> Result<Vec<String>> {
+    let v: Value = get(&format!("/packs/{pack_id}/nodes")).await?;
+    Ok(v["nodes"].as_array().into_iter().flatten().filter_map(|n| n.as_str().map(String::from)).collect())
+}
+
 // ---------- CurseForge über den Server ----------
 
 pub async fn curseforge_post(path: &str, body: Value) -> Result<Value> { post(&format!("/cf{path}"), body).await }
