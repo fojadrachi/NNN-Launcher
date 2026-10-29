@@ -1,0 +1,332 @@
+import { ScrollView, ComboBox, AboutSlint } from "std-widgets.slint";
+import { Theme, Icons } from "theme.slint";
+import { Button, IconButton, Icon, Tag, Card, ProgressBar, Label, SectionTitle, Thumb, Field, Segmented, Check } from "widgets.slint";
+import { AppState } from "state.slint";
+
+component PageHead inherits HorizontalLayout {
+    in property <string> a;
+    in property <string> b;
+    spacing: 10px;
+    if a != "": Text { text: a; font-size: 38px; font-weight: 700; color: Theme.fg; letter-spacing: -1.5px; }
+    Text { text: b; font-size: 38px; font-weight: 700; color: Theme.acc; letter-spacing: -1.5px; }
+    Rectangle { horizontal-stretch: 1; }
+}
+
+export component DiscoverPage inherits ScrollView {
+    property <length> content-w: min(self.visible-width - 80px, 1240px);
+    VerticalLayout {
+        alignment: start;
+        padding-top: 34px;
+        padding-bottom: 56px;
+        padding-left: (root.visible-width - content-w) / 2;
+        padding-right: self.padding-left;
+        spacing: 16px;
+
+        PageHead { a: "Mods"; b: "finden"; }
+        HorizontalLayout {
+            spacing: 10px;
+            Segmented {
+                options: ["Modrinth", "CurseForge"];
+                current <=> AppState.source;
+                changed => { AppState.search(false); }
+            }
+            Field {
+                horizontal-stretch: 1;
+                pill: true;
+                icon: Icons.search;
+                placeholder: "Mods durchsuchen …";
+                text <=> AppState.query;
+                edited => { search-timer.running = false; search-timer.running = true; }
+                accepted => { search-timer.running = false; AppState.search(false); }
+            }
+            if AppState.targets.length > 0: ComboBox {
+                width: 300px;
+                model: AppState.targets;
+                current-index <=> AppState.target;
+                selected => { AppState.search(false); }
+            }
+        }
+        // Erst suchen, wenn kurz nicht mehr getippt wurde
+        search-timer := Timer {
+            interval: 350ms;
+            running: false;
+            triggered => { self.running = false; AppState.search(false); }
+        }
+
+        if AppState.targets.length == 0: Card {
+            height: 90px;
+            Text { text: "Leg zuerst eine Instanz mit Mod-Loader an (Fabric, Quilt, Forge oder NeoForge)."; color: Theme.mut; }
+        }
+        if AppState.hits-error != "": Card {
+            height: 90px;
+            Text { text: AppState.hits-error; color: Theme.mut; wrap: word-wrap; horizontal-alignment: center; width: parent.width - 40px; }
+        }
+        if AppState.hits-loading && AppState.hits.length == 0: ProgressBar { }
+
+        for h[i] in AppState.hits: Card {
+            hoverable: true;
+            hovered: hta.has-hover;
+            height: 92px;
+            hta := TouchArea { }
+            HorizontalLayout {
+                padding-left: 14px;
+                padding-right: 16px;
+                spacing: 16px;
+                VerticalLayout { alignment: center; Thumb { img: h.icon; has-img: h.has-icon; fallback: h.title; size: 60px; } }
+                VerticalLayout {
+                    alignment: center;
+                    spacing: 3px;
+                    HorizontalLayout {
+                        spacing: 8px;
+                        alignment: start;
+                        Text { text: h.title; color: Theme.fg; font-weight: 700; font-size: 15px; overflow: elide; }
+                        Text { text: "von " + h.author; color: Theme.mut; font-size: 12px; vertical-alignment: center; overflow: elide; }
+                    }
+                    Text { text: h.description; color: Theme.mut; font-size: 13px; overflow: elide; }
+                    HorizontalLayout {
+                        spacing: 10px;
+                        alignment: start;
+                        Text { text: h.downloads + " Downloads"; color: Theme.dim; font-size: 12px; font-family: Theme.mono; }
+                        if h.url != "": Text {
+                            text: "Seite öffnen";
+                            color: lta.has-hover ? Theme.acc-hi : Theme.acc;
+                            font-size: 12px;
+                            lta := TouchArea { mouse-cursor: pointer; clicked => { AppState.open-url(h.url); } }
+                        }
+                    }
+                }
+                Rectangle { horizontal-stretch: 1; }
+                VerticalLayout {
+                    alignment: center;
+                    if h.installed: Tag { text: "Installiert"; kind: "good"; icon: Icons.check; }
+                    if !h.installed: Button { text: "Installieren"; icon: Icons.plus; kind: "primary"; small: true; busy: h.busy; clicked => { AppState.install-hit(i); } }
+                }
+            }
+        }
+        if AppState.hits-more: HorizontalLayout {
+            alignment: center;
+            Button { text: AppState.hits-loading ? "Lädt …" : "Mehr laden"; clicked => { AppState.search(true); } }
+        }
+    }
+}
+
+export component FriendsPage inherits ScrollView {
+    property <length> content-w: min(self.visible-width - 80px, 1240px);
+    property <string> user;
+    property <string> pass;
+    property <string> friend;
+    VerticalLayout {
+        alignment: start;
+        padding-top: 34px;
+        padding-bottom: 56px;
+        padding-left: (root.visible-width - content-w) / 2;
+        padding-right: self.padding-left;
+        spacing: 18px;
+
+        if !AppState.logged-in: VerticalLayout {
+            alignment: start;
+            spacing: 18px;
+            PageHead { a: "Bei"; b: "NNN anmelden"; }
+            HorizontalLayout {
+                alignment: start;
+                Card {
+                    width: 440px;
+                    height: 360px;
+                    VerticalLayout {
+                        alignment: start;
+                        padding: 26px;
+                        spacing: 10px;
+                        Text {
+                            text: "Mit einem NNN-Konto fügst du Freunde hinzu, teilst Modpacks und bekommst Updates. Das ist unabhängig von deinem Minecraft-Konto.";
+                            color: Theme.mut;
+                            wrap: word-wrap;
+                        }
+                        Rectangle { height: 6px; }
+                        Label { text: "BENUTZERNAME"; }
+                        Field { text <=> user; }
+                        Label { text: "PASSWORT"; }
+                        Field { text <=> pass; password: true; accepted => { AppState.login(user, pass); } }
+                        Rectangle { height: 6px; }
+                        HorizontalLayout {
+                            spacing: 10px;
+                            alignment: start;
+                            Button { text: "Anmelden"; kind: "primary"; busy: AppState.modal-busy; clicked => { AppState.login(user, pass); } }
+                            Button { text: "Konto erstellen"; clicked => { AppState.register(user, pass); } }
+                        }
+                    }
+                }
+            }
+        }
+
+        if AppState.logged-in: VerticalLayout {
+            alignment: start;
+            spacing: 18px;
+            PageHead { a: ""; b: "Freunde"; }
+            HorizontalLayout {
+                spacing: 24px;
+                VerticalLayout {
+                    alignment: start;
+                    horizontal-stretch: 1;
+                    spacing: 10px;
+                    if AppState.incoming.length > 0: SectionTitle { text: "ANFRAGEN"; }
+                    for u in AppState.incoming: Card {
+                        height: 66px;
+                        border-color: #f5b43c55;
+                        HorizontalLayout {
+                            padding-left: 12px;
+                            padding-right: 12px;
+                            spacing: 12px;
+                            VerticalLayout { alignment: center; Thumb { img: u.avatar; has-img: u.has-avatar; fallback: u.name; size: 40px; round: true; } }
+                            VerticalLayout { alignment: center; Text { text: u.name; color: Theme.fg; font-weight: 700; } Text { text: "möchte mit dir befreundet sein"; color: Theme.mut; font-size: 12px; } }
+                            Rectangle { horizontal-stretch: 1; }
+                            VerticalLayout { alignment: center; Button { text: "Annehmen"; icon: Icons.check; kind: "primary"; small: true; clicked => { AppState.accept-friend(u.id); } } }
+                            VerticalLayout { alignment: center; Button { text: "Ablehnen"; small: true; clicked => { AppState.remove-friend(u.id); } } }
+                        }
+                    }
+                    SectionTitle { text: "DEINE FREUNDE (" + AppState.friends.length + ")"; }
+                    if AppState.friends.length == 0: Card {
+                        height: 120px;
+                        VerticalLayout {
+                            alignment: center;
+                            spacing: 8px;
+                            HorizontalLayout { alignment: center; Icon { d: Icons.users; tint: Theme.mut; size: 32px; } }
+                            Text { text: "Noch keine Freunde – füge rechts jemanden über den Benutzernamen hinzu."; color: Theme.mut; horizontal-alignment: center; }
+                        }
+                    }
+                    for u in AppState.friends: Card {
+                        height: 64px;
+                        HorizontalLayout {
+                            padding-left: 12px;
+                            padding-right: 12px;
+                            spacing: 12px;
+                            VerticalLayout { alignment: center; Thumb { img: u.avatar; has-img: u.has-avatar; fallback: u.name; size: 40px; round: true; } }
+                            VerticalLayout { alignment: center; Text { text: u.name; color: Theme.fg; font-weight: 700; } }
+                            Rectangle { horizontal-stretch: 1; }
+                            VerticalLayout {
+                                alignment: center;
+                                IconButton { icon: Icons.x; tint: Theme.bad; clicked => { AppState.ask("Freund entfernen?", u.name + " wird aus deiner Freundesliste entfernt.", "Entfernen", "remove-friend", u.id); } }
+                            }
+                        }
+                    }
+                    if AppState.outgoing.length > 0: SectionTitle { text: "GESENDET"; }
+                    for u in AppState.outgoing: Card {
+                        height: 56px;
+                        HorizontalLayout {
+                            padding-left: 12px;
+                            padding-right: 12px;
+                            spacing: 12px;
+                            VerticalLayout { alignment: center; Thumb { img: u.avatar; has-img: u.has-avatar; fallback: u.name; size: 32px; round: true; } }
+                            VerticalLayout { alignment: center; Text { text: u.name; color: Theme.fg; } }
+                            Rectangle { horizontal-stretch: 1; }
+                            Text { text: "wartet …"; color: Theme.mut; font-size: 12px; vertical-alignment: center; }
+                            VerticalLayout { alignment: center; Button { text: "Zurückziehen"; small: true; clicked => { AppState.remove-friend(u.id); } } }
+                        }
+                    }
+                }
+                VerticalLayout {
+                    alignment: start;
+                    width: 340px;
+                    spacing: 14px;
+                    Card {
+                        height: 150px;
+                        VerticalLayout {
+                            alignment: start;
+                            padding: 20px;
+                            spacing: 10px;
+                            Text { text: "Freund hinzufügen"; font-size: 16px; font-weight: 700; color: Theme.fg; }
+                            Text { text: "NNN-Benutzername eingeben"; color: Theme.mut; font-size: 12px; }
+                            HorizontalLayout {
+                                spacing: 8px;
+                                Field { horizontal-stretch: 1; text <=> friend; placeholder: "Benutzername"; accepted => { AppState.add-friend(friend); friend = ""; } }
+                                Button { icon: Icons.plus; kind: "primary"; clicked => { AppState.add-friend(friend); friend = ""; } }
+                            }
+                        }
+                    }
+                    Card {
+                        height: 130px;
+                        VerticalLayout {
+                            alignment: start;
+                            padding: 20px;
+                            spacing: 8px;
+                            HorizontalLayout {
+                                spacing: 12px;
+                                Thumb { img: AppState.my-avatar; has-img: AppState.has-my-avatar; fallback: AppState.username; size: 40px; round: true; }
+                                VerticalLayout {
+                                    alignment: center;
+                                    Text { text: AppState.username; color: Theme.fg; font-weight: 700; }
+                                    Text { text: "Unter diesem Namen finden dich Freunde."; color: Theme.mut; font-size: 12px; wrap: word-wrap; }
+                                }
+                            }
+                            HorizontalLayout { alignment: start; Button { text: "Abmelden"; small: true; clicked => { AppState.logout(); } } }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+export component SettingsPage inherits ScrollView {
+    property <length> content-w: min(self.visible-width - 80px, 760px);
+    VerticalLayout {
+        alignment: start;
+        padding-top: 34px;
+        padding-bottom: 56px;
+        padding-left: (root.visible-width - content-w) / 2;
+        padding-right: self.padding-left;
+        spacing: 14px;
+
+        PageHead { a: ""; b: "Einstellungen"; }
+
+        SectionTitle { text: "SPIELSTART"; }
+        Text {
+            text: "Der NNN Launcher legt für jede Instanz ein Profil „NNN: <Name>“ an und öffnet den offiziellen Minecraft Launcher. Anmeldung und Spielstart laufen dort. Fehlt er auf dem PC, wird er einmalig von Mojang geladen.";
+            color: Theme.mut;
+            font-size: 13px;
+            wrap: word-wrap;
+        }
+        Label { text: "PFAD ZUM MINECRAFT LAUNCHER (OPTIONAL)"; }
+        Field { text <=> AppState.set-launcher; placeholder: "automatisch"; mono: true; }
+        Label { text: "ARBEITSSPEICHER (MB)"; }
+        Field { text <=> AppState.set-memory; mono: true; }
+        Label { text: "ZUSÄTZLICHE JVM-ARGUMENTE"; }
+        Field { text <=> AppState.set-jvm; mono: true; placeholder: "-XX:+UseZGC"; }
+        Check { text: "Launcher beim Spielstart minimieren"; checked <=> AppState.set-close; }
+        HorizontalLayout { alignment: start; Button { text: "Speichern"; kind: "primary"; clicked => { AppState.save-settings(); } } }
+
+        SectionTitle { text: "ÜBER DEN NNN LAUNCHER"; }
+        Card {
+            height: 112px;
+            clip: true;
+            Rectangle { background: @linear-gradient(120deg, #f5b43c18 0%, transparent 55%); }
+            HorizontalLayout {
+                padding: 22px;
+                spacing: 16px;
+                VerticalLayout {
+                    alignment: center;
+                    spacing: 4px;
+                    HorizontalLayout {
+                        spacing: 8px;
+                        alignment: start;
+                        Text { text: "Version"; color: Theme.fg; font-size: 17px; font-weight: 700; }
+                        Text { text: AppState.app-version; color: Theme.acc; font-size: 17px; font-weight: 700; font-family: Theme.mono; }
+                    }
+                    Text {
+                        text: (AppState.app-installed ? "Installiert" : "Portable Version – „Aktualisieren“ installiert den Launcher") + " · Updates über GitHub";
+                        color: Theme.mut;
+                        font-size: 12px;
+                    }
+                    Text { text: AppState.update-state; color: Theme.mut; font-size: 12px; }
+                }
+                Rectangle { horizontal-stretch: 1; }
+                VerticalLayout {
+                    alignment: center;
+                    if AppState.update-available: Button { text: "Auf " + AppState.update-version + " aktualisieren"; kind: "primary"; icon: Icons.download; clicked => { AppState.modal = "update"; } }
+                    if !AppState.update-available: Button { text: "Nach Updates suchen"; busy: AppState.update-busy; clicked => { AppState.check-update(); } }
+                }
+            }
+        }
+        Text { text: "Server: launcher.nnn-server.de · Mods von Modrinth und CurseForge"; color: Theme.dim; font-size: 12px; }
+        HorizontalLayout { alignment: start; AboutSlint { width: 220px; height: 120px; } }
+    }
+}

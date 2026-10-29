@@ -1,0 +1,209 @@
+import { ScrollView } from "std-widgets.slint";
+import { Theme, Icons } from "theme.slint";
+import { Button, Icon, Tag, Monogram, Card, ProgressBar, Label, SectionTitle } from "widgets.slint";
+import { AppState, InstanceItem } from "state.slint";
+
+export component InstanceTags inherits HorizontalLayout {
+    in property <InstanceItem> inst;
+    spacing: 6px;
+    alignment: start;
+    Tag { text: inst.minecraft; }
+    Tag { text: inst.loader; }
+    if inst.shared: Tag { text: "Geteilt"; kind: "blue"; icon: Icons.link; }
+    if inst.update: Tag { text: "Update"; kind: "acc"; icon: Icons.sync; }
+    if !inst.update && inst.dirty && inst.can-edit: Tag { text: "Unveröffentlicht"; kind: "warn"; }
+}
+
+component PlayButton inherits Button {
+    in property <InstanceItem> inst;
+    kind: "primary";
+    icon: Icons.play;
+    text: inst.busy ? "Bitte warten" : "Spielen";
+    busy: inst.busy;
+    clicked => { AppState.play(inst.id); }
+}
+
+component Hero inherits Rectangle {
+    in property <InstanceItem> inst;
+    height: 220px;
+    border-radius: 22px;
+    clip: true;
+    background: Theme.panel;
+    border-width: 1px;
+    border-color: Theme.line;
+    // Farbschein der Instanz
+    Rectangle {
+        background: @radial-gradient(circle, inst.tint.transparentize(0.62) 0%, transparent 70%);
+        x: parent.width * 0.45;
+        y: -parent.height * 0.9;
+        width: parent.width * 0.9;
+        height: parent.height * 2.4;
+    }
+    Rectangle { background: @linear-gradient(90deg, Theme.panel 30%, transparent 100%); }
+    HorizontalLayout {
+        padding: 32px;
+        spacing: 26px;
+        VerticalLayout { alignment: center; Monogram { letter: inst.initial; tint: inst.tint; size: 96px; } }
+        VerticalLayout {
+            alignment: center;
+            spacing: 8px;
+            Label { text: inst.last-played != "" ? "WEITERSPIELEN" : "NEU"; color: Theme.acc; }
+            Text { text: inst.name; font-size: 36px; font-weight: 700; color: Theme.fg; overflow: elide; letter-spacing: -1px; }
+            HorizontalLayout {
+                spacing: 10px;
+                alignment: start;
+                InstanceTags { inst: inst; }
+                Text {
+                    text: inst.mod-count + " Mods" + (inst.last-played != "" ? "  ·  zuletzt " + inst.last-played : "");
+                    color: Theme.mut;
+                    font-size: 13px;
+                    vertical-alignment: center;
+                }
+            }
+            if inst.busy: VerticalLayout {
+                alignment: start;
+                spacing: 6px;
+                padding-top: 6px;
+                Text { text: inst.status; color: Theme.mut; font-size: 12px; overflow: elide; }
+                ProgressBar { value: inst.progress; width: 360px; }
+            }
+        }
+        VerticalLayout {
+            alignment: center;
+            spacing: 10px;
+            horizontal-stretch: 0;
+            HorizontalLayout { alignment: center; PlayButton { inst: inst; big: true; width: 210px; } }
+            HorizontalLayout {
+                spacing: 8px;
+                alignment: center;
+                Button { text: "Öffnen"; small: true; clicked => { AppState.open-instance(inst.id); } }
+                if inst.update: Button { text: "Aktualisieren"; icon: Icons.sync; small: true; clicked => { AppState.sync(inst.id); } }
+            }
+        }
+    }
+}
+
+component InstanceCard inherits Card {
+    in property <InstanceItem> inst;
+    hoverable: true;
+    hovered: ta.has-hover;
+    height: 250px;
+    clip: true;
+    ta := TouchArea { mouse-cursor: pointer; clicked => { AppState.open-instance(inst.id); } }
+    Rectangle {
+        y: 0;
+        height: 92px;
+        background: @linear-gradient(135deg, inst.tint.transparentize(0.55) 0%, inst.tint.transparentize(0.92) 60%, transparent 100%);
+    }
+    Monogram { x: 18px; y: 58px; letter: inst.initial; tint: inst.tint; size: 52px; }
+    VerticalLayout {
+        alignment: start;
+        y: 120px;
+        height: parent.height - 120px;
+        padding-left: 18px;
+        padding-right: 18px;
+        padding-bottom: 16px;
+        spacing: 6px;
+        Text { text: inst.name; font-size: 17px; font-weight: 700; color: Theme.fg; overflow: elide; }
+        Text {
+            text: inst.mod-count + " Mods" + (inst.last-played != "" ? " · " + inst.last-played : "");
+            color: Theme.mut;
+            font-size: 12px;
+            overflow: elide;
+        }
+        InstanceTags { inst: inst; }
+        Rectangle { }
+        if inst.busy: ProgressBar { value: inst.progress; }
+        HorizontalLayout {
+            spacing: 8px;
+            alignment: start;
+            PlayButton { inst: inst; small: true; }
+            if inst.update: Button { text: "Update"; icon: Icons.sync; small: true; clicked => { AppState.sync(inst.id); } }
+        }
+    }
+}
+
+export component LibraryPage inherits ScrollView {
+    property <length> gap: 18px;
+    property <length> content-w: min(self.visible-width - 80px, 1240px);
+    property <int> cols: max(1, floor((content-w + gap) / (290px + gap)));
+    property <length> card-w: (content-w - (cols - 1) * gap) / cols;
+    property <int> rest-count: AppState.instances.length - (AppState.has-hero ? 1 : 0);
+
+    VerticalLayout {
+        alignment: start;
+        padding-top: 34px;
+        padding-bottom: 56px;
+        padding-left: (root.visible-width - content-w) / 2;
+        padding-right: self.padding-left;
+        spacing: 22px;
+
+        HorizontalLayout {
+            spacing: 10px;
+            Text { text: "Deine"; font-size: 38px; font-weight: 700; color: Theme.fg; letter-spacing: -1.5px; vertical-alignment: bottom; }
+            Text { text: "Packs"; font-size: 38px; font-weight: 700; color: Theme.acc; letter-spacing: -1.5px; vertical-alignment: bottom; }
+            Rectangle { horizontal-stretch: 1; }
+            VerticalLayout { alignment: end; Button { text: "Beitreten"; icon: Icons.join; clicked => { AppState.modal = "join"; } } }
+            VerticalLayout { alignment: end; Button { text: "Neue Instanz"; icon: Icons.plus; kind: "primary"; clicked => { AppState.new-instance-dialog(); } } }
+        }
+
+        if AppState.has-hero: Hero { inst: AppState.hero; }
+
+        if !AppState.has-hero: Rectangle {
+            height: 260px;
+            border-radius: 22px;
+            border-width: 1px;
+            border-color: Theme.line;
+            background: Theme.panel;
+            VerticalLayout {
+                alignment: center;
+                spacing: 12px;
+                HorizontalLayout { alignment: center; Icon { d: Icons.box; tint: Theme.acc; size: 44px; } }
+                Text { text: "Noch keine Instanzen"; font-size: 22px; font-weight: 700; color: Theme.fg; horizontal-alignment: center; }
+                Text { text: "Leg eine neue an oder tritt einem Modpack deiner Freunde bei."; color: Theme.mut; horizontal-alignment: center; }
+                HorizontalLayout {
+                    alignment: center;
+                    spacing: 10px;
+                    Button { text: "Beitreten"; icon: Icons.join; clicked => { AppState.modal = "join"; } }
+                    Button { text: "Neue Instanz"; icon: Icons.plus; kind: "primary"; clicked => { AppState.new-instance-dialog(); } }
+                }
+            }
+        }
+
+        if rest-count > 0: SectionTitle { text: "ALLE INSTANZEN"; }
+        if rest-count > 0: Rectangle {
+            height: ceil(rest-count / cols) * (250px + gap) - gap;
+            for inst[i] in AppState.instances: InstanceCard {
+                property <int> pos: i - (AppState.has-hero ? 1 : 0);
+                visible: pos >= 0;
+                inst: inst;
+                width: card-w;
+                x: mod(max(pos, 0), cols) * (card-w + gap);
+                y: floor(max(pos, 0) / cols) * (250px + gap);
+            }
+        }
+
+        if AppState.open-packs.length > 0: SectionTitle { text: "GETEILTE PACKS – NOCH NICHT INSTALLIERT"; }
+        for p in AppState.open-packs: Card {
+            height: 76px;
+            HorizontalLayout {
+                padding-left: 16px;
+                padding-right: 16px;
+                spacing: 14px;
+                VerticalLayout { alignment: center; Monogram { letter: p.initial; tint: p.tint; size: 44px; } }
+                VerticalLayout {
+                    alignment: center;
+                    spacing: 3px;
+                    Text { text: p.name; font-size: 15px; font-weight: 700; color: Theme.fg; overflow: elide; }
+                    Text { text: p.sub; font-size: 12px; color: Theme.mut; font-family: Theme.mono; overflow: elide; }
+                    if p.busy: ProgressBar { value: p.progress; width: 300px; }
+                }
+                Rectangle { horizontal-stretch: 1; }
+                VerticalLayout {
+                    alignment: center;
+                    Button { text: "Installieren"; icon: Icons.download; kind: "primary"; small: true; busy: p.busy; clicked => { AppState.install-pack(p.id); } }
+                }
+            }
+        }
+    }
+}

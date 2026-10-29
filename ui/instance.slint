@@ -1,0 +1,419 @@
+import { ScrollView, ComboBox } from "std-widgets.slint";
+import { Theme, Icons } from "theme.slint";
+import { Button, IconButton, Icon, Tag, Monogram, Card, ProgressBar, Label, SectionTitle, Thumb, Field, Segmented } from "widgets.slint";
+import { AppState } from "state.slint";
+import { InstanceTags } from "library.slint";
+
+component Tabs inherits Rectangle {
+    height: 42px;
+    width: row.preferred-width;
+    border-radius: 21px;
+    background: Theme.panel;
+    border-width: 1px;
+    border-color: Theme.line;
+    row := HorizontalLayout {
+        padding: 4px;
+        spacing: 2px;
+        for t in [{ k: "mods", l: "Mods" }, { k: "pack", l: "Teilen & Freunde" }, { k: "settings", l: "Einstellungen" }]: Rectangle {
+            border-radius: 17px;
+            background: AppState.tab == t.k ? Theme.panel-3 : transparent;
+            animate background { duration: 120ms; }
+            HorizontalLayout {
+                padding-left: 18px;
+                padding-right: 18px;
+                Text {
+                    text: t.l;
+                    color: AppState.tab == t.k ? Theme.fg : ta.has-hover ? Theme.fg : Theme.mut;
+                    font-size: 14px;
+                    font-weight: 500;
+                    vertical-alignment: center;
+                }
+            }
+            ta := TouchArea { mouse-cursor: pointer; clicked => { AppState.tab = t.k; } }
+        }
+    }
+}
+
+component ModsTab inherits VerticalLayout {
+    alignment: start;
+    spacing: 10px;
+    HorizontalLayout {
+        spacing: 10px;
+        Text { text: AppState.mods.length + " Mods im Pack"; color: Theme.mut; vertical-alignment: center; }
+        Rectangle { horizontal-stretch: 1; }
+        Button { text: "Ordner"; icon: Icons.folder; clicked => { AppState.open-folder(AppState.current.id); } }
+        if AppState.current.loader != "Vanilla" && AppState.current.can-edit: Button {
+            text: "Mods hinzufügen";
+            icon: Icons.plus;
+            kind: "primary";
+            clicked => { AppState.page = "discover"; AppState.search(false); }
+        }
+    }
+    if AppState.current.loader == "Vanilla": Card {
+        height: 90px;
+        Text { text: "Vanilla-Instanzen haben keine Mods. Wähle unter Einstellungen einen Mod-Loader."; color: Theme.mut; }
+    }
+    for m in AppState.mods: Card {
+        height: 64px;
+        HorizontalLayout {
+            padding-left: 12px;
+            padding-right: 12px;
+            spacing: 14px;
+            VerticalLayout { alignment: center; Thumb { img: m.icon; has-img: m.has-icon; fallback: m.name; size: 42px; } }
+            VerticalLayout {
+                alignment: center;
+                spacing: 2px;
+                HorizontalLayout {
+                    spacing: 8px;
+                    alignment: start;
+                    Text { text: m.name; color: Theme.fg; font-weight: 600; font-size: 14px; overflow: elide; }
+                    if m.dependency: Tag { text: "Abhängigkeit"; }
+                }
+                Text { text: m.version + " · " + m.source; color: Theme.mut; font-size: 12px; font-family: Theme.mono; overflow: elide; }
+            }
+            Rectangle { horizontal-stretch: 1; }
+            if AppState.current.can-edit: VerticalLayout {
+                alignment: center;
+                IconButton { icon: Icons.trash; tint: Theme.bad; clicked => { AppState.remove-mod(AppState.current.id, m.file); } }
+            }
+        }
+    }
+    if AppState.local-mods.length > 0: SectionTitle { text: "EIGENE DATEIEN IM MODS-ORDNER"; }
+    if AppState.local-mods.length > 0: Text { text: "Selbst hineinkopiert – werden nicht mit dem Pack geteilt und beim Sync nicht angefasst."; color: Theme.mut; font-size: 12px; wrap: word-wrap; }
+    for f in AppState.local-mods: Card {
+        height: 48px;
+        HorizontalLayout { padding-left: 16px; Text { text: f; color: Theme.fg; font-family: Theme.mono; font-size: 13px; vertical-alignment: center; overflow: elide; } }
+    }
+}
+
+component PackTab inherits VerticalLayout {
+    alignment: start;
+    spacing: 14px;
+    if !AppState.logged-in: Card {
+        height: 150px;
+        VerticalLayout {
+            alignment: start;
+            padding: 22px;
+            spacing: 10px;
+            Text { text: "Mit Freunden teilen"; font-size: 18px; font-weight: 700; color: Theme.fg; }
+            Text { text: "Melde dich beim NNN-Server an, um dieses Modpack zu teilen und Updates zu synchronisieren."; color: Theme.mut; wrap: word-wrap; }
+            HorizontalLayout { alignment: start; Button { text: "Anmelden"; kind: "primary"; clicked => { AppState.page = "friends"; } } }
+        }
+    }
+    if AppState.logged-in && !AppState.current.shared: Card {
+        height: 190px;
+        clip: true;
+        Rectangle { background: @linear-gradient(120deg, #f5b43c22 0%, transparent 60%); }
+        VerticalLayout {
+            alignment: start;
+            padding: 24px;
+            spacing: 10px;
+            Text { text: "Dieses Modpack teilen"; font-size: 20px; font-weight: 700; color: Theme.fg; }
+            Text {
+                text: "Lade das Pack auf den NNN-Server. Danach lädst du Freunde ein oder schickst einen Link. Änderst du später Mods, klickst du auf „Update veröffentlichen“ – alle anderen bekommen es mit einem Klick.";
+                color: Theme.mut;
+                wrap: word-wrap;
+            }
+            HorizontalLayout { alignment: start; Button { text: "Pack teilen"; icon: Icons.upload; kind: "primary"; clicked => { AppState.modal = "publish"; } } }
+        }
+    }
+    if AppState.logged-in && AppState.current.shared: HorizontalLayout {
+        spacing: 22px;
+        VerticalLayout {
+            alignment: start;
+            spacing: 12px;
+            horizontal-stretch: 1;
+            Card {
+                height: 96px;
+                HorizontalLayout {
+                    padding: 20px;
+                    spacing: 10px;
+                    VerticalLayout {
+                        alignment: center;
+                        spacing: 4px;
+                        Text { text: AppState.pack-name; font-size: 18px; font-weight: 700; color: Theme.fg; overflow: elide; }
+                        Text { text: AppState.pack-info; color: Theme.mut; font-size: 12px; overflow: elide; }
+                    }
+                    Rectangle { horizontal-stretch: 1; }
+                    if AppState.current.can-edit: VerticalLayout { alignment: center; Button { text: "Link erstellen"; icon: Icons.link; clicked => { AppState.modal = "share"; } } }
+                    if AppState.current.can-edit: VerticalLayout { alignment: center; Button { text: "Update veröffentlichen"; icon: Icons.upload; kind: "primary"; clicked => { AppState.modal = "push"; } } }
+                }
+            }
+            SectionTitle { text: "VERSIONEN"; }
+            if !AppState.pack-loaded: Text { text: "Lädt …"; color: Theme.mut; }
+            for v in AppState.versions: Card {
+                height: v.changelog == "" ? 62px : 84px;
+                VerticalLayout {
+                    padding-left: 16px;
+                    padding-right: 16px;
+                    alignment: center;
+                    spacing: 3px;
+                    HorizontalLayout {
+                        spacing: 8px;
+                        alignment: start;
+                        Text { text: v.title; color: Theme.fg; font-weight: 600; }
+                        if v.installed: Tag { text: "installiert"; kind: "acc"; }
+                    }
+                    Text { text: v.sub; color: Theme.mut; font-size: 12px; font-family: Theme.mono; }
+                    if v.changelog != "": Text { text: v.changelog; color: Theme.mut; font-size: 13px; overflow: elide; }
+                }
+            }
+        }
+        VerticalLayout {
+            alignment: start;
+            width: 330px;
+            spacing: 12px;
+            SectionTitle { text: "MITGLIEDER"; }
+            for m in AppState.members: Card {
+                height: 60px;
+                HorizontalLayout {
+                    padding-left: 12px;
+                    padding-right: 10px;
+                    spacing: 12px;
+                    VerticalLayout { alignment: center; Thumb { img: m.avatar; has-img: m.has-avatar; fallback: m.name; size: 36px; round: true; } }
+                    VerticalLayout {
+                        alignment: center;
+                        Text { text: m.name + (m.is-me ? " (du)" : ""); color: Theme.fg; font-weight: 600; overflow: elide; }
+                        Text { text: m.role-label; color: Theme.mut; font-size: 12px; }
+                    }
+                    Rectangle { horizontal-stretch: 1; }
+                    if AppState.is-owner && m.role != "owner": VerticalLayout {
+                        alignment: center;
+                        Button {
+                            small: true;
+                            text: m.role == "editor" ? "Mitglied" : "Editor";
+                            clicked => { AppState.set-role(AppState.current.id, m.id, m.role == "editor" ? "member" : "editor"); }
+                        }
+                    }
+                    if AppState.current.can-edit && m.role != "owner" && !m.is-me: VerticalLayout {
+                        alignment: center;
+                        IconButton {
+                            icon: Icons.x;
+                            tint: Theme.bad;
+                            clicked => { AppState.ask("Mitglied entfernen?", m.name + " bekommt dann keine Updates mehr für dieses Pack.", "Entfernen", "kick", m.id); }
+                        }
+                    }
+                }
+            }
+            if AppState.current.can-edit: SectionTitle { text: "FREUND EINLADEN"; }
+            if AppState.current.can-edit && AppState.friends.length == 0: Text { text: "Füge unter „Freunde“ zuerst jemanden hinzu."; color: Theme.mut; font-size: 13px; wrap: word-wrap; }
+            if AppState.current.can-edit && AppState.friends.length > 0: HorizontalLayout {
+                spacing: 8px;
+                invite-box := ComboBox { horizontal-stretch: 1; model: AppState.friend-names; }
+                Button { text: "Einladen"; clicked => { AppState.invite(AppState.current.id, AppState.friends[invite-box.current-index].id); } }
+            }
+            SectionTitle { text: "GEFAHRENZONE"; }
+            if AppState.is-owner: Button {
+                text: "Pack auf dem Server löschen";
+                icon: Icons.trash;
+                kind: "danger";
+                clicked => { AppState.ask("Pack löschen?", "Das Pack wird für alle Mitglieder vom Server gelöscht. Deine Instanz bleibt auf dem PC.", "Löschen", "delete-pack", AppState.current.id); }
+            }
+            if !AppState.is-owner: Button {
+                text: "Pack verlassen";
+                kind: "danger";
+                clicked => { AppState.ask("Pack verlassen?", "Die Instanz bleibt auf deinem PC, bekommt aber keine Updates mehr.", "Verlassen", "leave-pack", AppState.current.id); }
+            }
+        }
+    }
+}
+
+component SettingsTab inherits VerticalLayout {
+    alignment: start;
+    spacing: 14px;
+    property <string> name: AppState.current.name;
+    property <string> memory: AppState.current.memory;
+    max-width: 620px;
+    Label { text: "NAME"; }
+    Field { text <=> name; }
+    Label { text: "ARBEITSSPEICHER IN MB (LEER = STANDARD)"; }
+    Field { text <=> memory; mono: true; placeholder: "z. B. 6144"; }
+    if AppState.current.can-edit: VerticalLayout {
+        alignment: start;
+        spacing: 14px;
+        HorizontalLayout {
+            spacing: 12px;
+            VerticalLayout {
+                alignment: start;
+                spacing: 6px;
+                Label { text: "MINECRAFT"; }
+                mc := ComboBox {
+                    model: AppState.mc-versions;
+                    current-index: AppState.current.mc-index;
+                    selected => { AppState.versions-for(self.current-value, loader.current-index); }
+                }
+            }
+            VerticalLayout {
+                alignment: start;
+                spacing: 6px;
+                Label { text: "LOADER"; }
+                loader := ComboBox {
+                    model: ["Vanilla", "Fabric", "Quilt", "Forge", "NeoForge"];
+                    current-index: AppState.current.loader-index;
+                    selected => { AppState.versions-for(mc.current-value, self.current-index); }
+                }
+            }
+        }
+        VerticalLayout {
+            alignment: start;
+            spacing: 6px;
+            visible: loader.current-index > 0;
+            Label { text: AppState.loader-versions-loading ? "LOADER-VERSION (LÄDT …)" : "LOADER-VERSION"; }
+            lv := ComboBox { model: AppState.loader-labels; current-index: AppState.loader-default; }
+        }
+        Text { text: "Achtung: Beim Wechsel von Version oder Loader passen installierte Mods evtl. nicht mehr."; color: Theme.mut; font-size: 12px; wrap: word-wrap; }
+        HorizontalLayout {
+            spacing: 10px;
+            alignment: start;
+            Button {
+                text: "Speichern";
+                kind: "primary";
+                clicked => {
+                    AppState.save-instance(AppState.current.id, name, memory, mc.current-value, loader.current-index,
+                        loader.current-index > 0 && AppState.loader-versions.length > 0 ? AppState.loader-versions[lv.current-index] : "");
+                }
+            }
+            Button { text: "Ordner öffnen"; icon: Icons.folder; clicked => { AppState.open-folder(AppState.current.id); } }
+        }
+    }
+    if !AppState.current.can-edit: VerticalLayout {
+        alignment: start;
+        spacing: 10px;
+        Text { text: "Version und Loader legt der Besitzer des Packs fest."; color: Theme.mut; font-size: 13px; }
+        HorizontalLayout {
+            spacing: 10px;
+            alignment: start;
+            Button { text: "Speichern"; kind: "primary"; clicked => { AppState.save-instance(AppState.current.id, name, memory, "", -1, ""); } }
+            Button { text: "Ordner öffnen"; icon: Icons.folder; clicked => { AppState.open-folder(AppState.current.id); } }
+        }
+    }
+    SectionTitle { text: "GEFAHRENZONE"; }
+    HorizontalLayout {
+        alignment: start;
+        Button {
+            text: "Instanz löschen";
+            icon: Icons.trash;
+            kind: "danger";
+            clicked => { AppState.ask("Instanz löschen?", "„" + AppState.current.name + "“ wird mit allen Welten und Einstellungen von deinem PC gelöscht.", "Löschen", "delete-instance", AppState.current.id); }
+        }
+    }
+}
+
+export component InstancePage inherits ScrollView {
+    property <length> content-w: min(self.visible-width - 80px, 1240px);
+    VerticalLayout {
+        alignment: start;
+        padding-top: 26px;
+        padding-bottom: 56px;
+        padding-left: (root.visible-width - content-w) / 2;
+        padding-right: self.padding-left;
+        spacing: 18px;
+
+        HorizontalLayout {
+            alignment: start;
+            Rectangle {
+                width: back-row.preferred-width;
+                height: 24px;
+                back-row := HorizontalLayout {
+                    spacing: 4px;
+                    Icon { d: Icons.back; tint: back-ta.has-hover ? Theme.acc : Theme.mut; size: 16px; y: 4px; }
+                    Text { text: "Bibliothek"; color: back-ta.has-hover ? Theme.acc : Theme.mut; font-size: 14px; vertical-alignment: center; }
+                }
+                back-ta := TouchArea { mouse-cursor: pointer; clicked => { AppState.page = "library"; } }
+            }
+        }
+
+        // Kopf mit Farbschein
+        Rectangle {
+            height: 140px;
+            border-radius: 22px;
+            clip: true;
+            background: Theme.panel;
+            border-width: 1px;
+            border-color: Theme.line;
+            Rectangle {
+                x: -parent.width * 0.2;
+                y: -parent.height * 1.2;
+                width: parent.width * 0.9;
+                height: parent.height * 3;
+                background: @radial-gradient(circle, AppState.current.tint.transparentize(0.7) 0%, transparent 65%);
+            }
+            HorizontalLayout {
+                padding: 26px;
+                spacing: 22px;
+                VerticalLayout { alignment: center; Monogram { letter: AppState.current.initial; tint: AppState.current.tint; size: 84px; } }
+                VerticalLayout {
+                    alignment: center;
+                    spacing: 8px;
+                    Text { text: AppState.current.name; font-size: 32px; font-weight: 700; color: Theme.fg; overflow: elide; letter-spacing: -1px; }
+                    HorizontalLayout {
+                        spacing: 10px;
+                        alignment: start;
+                        InstanceTags { inst: AppState.current; }
+                        if AppState.current.loader-version != "": Text {
+                            text: AppState.current.loader + " " + AppState.current.loader-version;
+                            color: Theme.mut;
+                            font-size: 12px;
+                            font-family: Theme.mono;
+                            vertical-alignment: center;
+                        }
+                    }
+                    if AppState.current.busy: VerticalLayout {
+                        alignment: start;
+                        spacing: 5px;
+                        Text { text: AppState.current.status; color: Theme.mut; font-size: 12px; overflow: elide; }
+                        ProgressBar { value: AppState.current.progress; width: 380px; }
+                    }
+                }
+                VerticalLayout {
+                    alignment: center;
+                    horizontal-stretch: 0;
+                    Button {
+                        width: 210px;
+                        kind: "primary";
+                        big: true;
+                        icon: Icons.play;
+                        text: AppState.current.busy ? "Bitte warten" : "Spielen";
+                        busy: AppState.current.busy;
+                        clicked => { AppState.play(AppState.current.id); }
+                    }
+                }
+            }
+        }
+
+        if AppState.current.update: Rectangle {
+            height: 56px;
+            border-radius: Theme.radius;
+            background: #f5b43c1c;
+            border-width: 1px;
+            border-color: #f5b43c55;
+            HorizontalLayout {
+                padding-left: 18px;
+                padding-right: 12px;
+                spacing: 12px;
+                VerticalLayout { alignment: center; Icon { d: Icons.sync; tint: Theme.acc; } }
+                Text { text: "Update verfügbar – deine Freunde haben das Pack geändert."; color: Theme.fg; vertical-alignment: center; horizontal-stretch: 1; }
+                VerticalLayout { alignment: center; Button { text: "Jetzt aktualisieren"; kind: "primary"; small: true; clicked => { AppState.sync(AppState.current.id); } } }
+            }
+        }
+        if !AppState.current.update && AppState.current.dirty && AppState.current.can-edit: Rectangle {
+            height: 56px;
+            border-radius: Theme.radius;
+            background: #ff6b6b12;
+            border-width: 1px;
+            border-color: #ff6b6b44;
+            HorizontalLayout {
+                padding-left: 18px;
+                padding-right: 12px;
+                spacing: 12px;
+                Text { text: "Du hast Änderungen, die deine Freunde noch nicht haben."; color: Theme.fg; vertical-alignment: center; horizontal-stretch: 1; }
+                VerticalLayout { alignment: center; Button { text: "Update veröffentlichen"; icon: Icons.upload; kind: "primary"; small: true; clicked => { AppState.modal = "push"; } } }
+            }
+        }
+
+        HorizontalLayout { alignment: start; Tabs { } }
+        if AppState.tab == "mods": ModsTab { }
+        if AppState.tab == "pack": PackTab { }
+        if AppState.tab == "settings": SettingsTab { }
+    }
+}

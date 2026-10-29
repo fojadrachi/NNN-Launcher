@@ -1,0 +1,217 @@
+import "fonts/SpaceGrotesk-Regular.ttf";
+import "fonts/SpaceGrotesk-Medium.ttf";
+import "fonts/SpaceGrotesk-Bold.ttf";
+import "fonts/JetBrainsMono-Medium.ttf";
+import "fonts/JetBrainsMono-Bold.ttf";
+
+import { Theme, Icons } from "theme.slint";
+import { Icon, Badge, Thumb } from "widgets.slint";
+import { AppState, InstanceItem, ModItem, HitItem, UserItem, PackItem, MemberItem, VersionItem, NotifItem, ToastItem } from "state.slint";
+import { LibraryPage } from "library.slint";
+import { InstancePage } from "instance.slint";
+import { DiscoverPage, FriendsPage, SettingsPage } from "pages.slint";
+import { NotifPanel, NewInstanceDialog, JoinDialog, PublishDialog, PushDialog, ShareDialog, ConfirmDialog, UpdateDialog, Toasts } from "overlays.slint";
+
+export { AppState, InstanceItem, ModItem, HitItem, UserItem, PackItem, MemberItem, VersionItem, NotifItem, ToastItem }
+
+component NavItem inherits Rectangle {
+    in property <string> text;
+    in property <string> icon;
+    in property <string> target;
+    in property <int> badge;
+    property <bool> active: AppState.page == target || (target == "library" && AppState.page == "instance");
+    height: 38px;
+    width: row.preferred-width;
+    border-radius: 19px;
+    background: active ? Theme.acc : ta.has-hover ? Theme.panel-2 : transparent;
+    animate background { duration: 140ms; }
+    row := HorizontalLayout {
+        padding-left: 14px;
+        padding-right: 16px;
+        spacing: 8px;
+        VerticalLayout { alignment: center; Icon { d: icon; size: 16px; tint: active ? Theme.acc-ink : ta.has-hover ? Theme.fg : Theme.mut; } }
+        Text { text: text; color: active ? Theme.acc-ink : ta.has-hover ? Theme.fg : Theme.mut; font-size: 14px; font-weight: active ? 700 : 500; vertical-alignment: center; }
+        if badge > 0: VerticalLayout { alignment: center; Badge { count: badge; } }
+    }
+    ta := TouchArea { mouse-cursor: pointer; clicked => { AppState.page = target; AppState.notif-open = false; } }
+}
+
+export component AppWindow inherits Window {
+    title: "NNN Launcher";
+    icon: @image-url("../assets/icon.png");
+    preferred-width: 1320px;
+    preferred-height: 840px;
+    min-width: 1000px;
+    min-height: 640px;
+    background: Theme.bg;
+    default-font-family: Theme.sans;
+    default-font-size: 14px;
+
+    // Hintergrund: leichter Amber-Schein oben links
+    Rectangle {
+        x: -root.width * 0.25;
+        y: -root.height * 0.6;
+        width: root.width * 0.9;
+        height: root.height * 1.2;
+        background: @radial-gradient(circle, #f5b43c14 0%, transparent 60%);
+    }
+    Rectangle {
+        x: root.width * 0.55;
+        y: root.height * 0.45;
+        width: root.width * 0.8;
+        height: root.height * 1.1;
+        background: @radial-gradient(circle, #8f6bff0d 0%, transparent 60%);
+    }
+
+    VerticalLayout {
+        // ---------- Kopfleiste ----------
+        Rectangle {
+            height: 68px;
+            background: Theme.bg-2.transparentize(0.25);
+            Rectangle { y: parent.height - 1px; height: 1px; background: Theme.line; }
+            HorizontalLayout {
+                padding-left: 26px;
+                padding-right: 22px;
+                spacing: 26px;
+                // Logo
+                HorizontalLayout {
+                    spacing: 9px;
+                    alignment: start;
+                    VerticalLayout {
+                        alignment: center;
+                        Rectangle {
+                            width: 54px;
+                            height: 30px;
+                            border-radius: 9px;
+                            background: @linear-gradient(135deg, Theme.acc-hi 0%, Theme.acc 60%, #e39a1d 100%);
+                            drop-shadow-blur: 16px;
+                            drop-shadow-color: #f5b43c55;
+                            Text { text: "NNN"; color: Theme.acc-ink; font-size: 17px; font-weight: 700; letter-spacing: -0.5px; }
+                        }
+                    }
+                    Text { text: "Launcher"; color: Theme.fg; font-size: 19px; font-weight: 700; vertical-alignment: center; letter-spacing: -0.5px; }
+                }
+                HorizontalLayout {
+                    spacing: 4px;
+                    alignment: start;
+                    VerticalLayout { alignment: center; NavItem { text: "Bibliothek"; icon: Icons.grid; target: "library"; } }
+                    VerticalLayout { alignment: center; NavItem { text: "Mods finden"; icon: Icons.search; target: "discover"; } }
+                    VerticalLayout { alignment: center; NavItem { text: "Freunde"; icon: Icons.users; target: "friends"; badge: AppState.incoming-count; } }
+                    VerticalLayout { alignment: center; NavItem { text: "Einstellungen"; icon: Icons.gear; target: "settings"; } }
+                }
+                Rectangle { horizontal-stretch: 1; }
+                // Status
+                VerticalLayout {
+                    alignment: center;
+                    Rectangle {
+                        height: 30px;
+                        width: status.preferred-width;
+                        border-radius: 15px;
+                        background: Theme.panel-2;
+                        border-width: 1px;
+                        border-color: Theme.line;
+                        status := HorizontalLayout {
+                            padding-left: 12px;
+                            padding-right: 14px;
+                            spacing: 8px;
+                            VerticalLayout {
+                                alignment: center;
+                                Rectangle {
+                                    width: 8px;
+                                    height: 8px;
+                                    border-radius: 4px;
+                                    background: !AppState.logged-in ? Theme.dim : AppState.server-online ? Theme.good : Theme.bad;
+                                    drop-shadow-blur: AppState.logged-in && AppState.server-online ? 8px : 0;
+                                    drop-shadow-color: Theme.good;
+                                }
+                            }
+                            Text {
+                                text: !AppState.logged-in ? "Nicht angemeldet" : AppState.server-online ? AppState.username : AppState.username + " · offline";
+                                color: Theme.mut;
+                                font-size: 13px;
+                                vertical-alignment: center;
+                            }
+                        }
+                    }
+                }
+                // Glocke
+                VerticalLayout {
+                    alignment: center;
+                    bell := Rectangle {
+                        width: 40px;
+                        height: 40px;
+                        border-radius: 20px;
+                        background: AppState.notif-open || b-ta.has-hover ? Theme.panel-3 : Theme.panel-2;
+                        border-width: 1px;
+                        border-color: AppState.notif-open ? Theme.acc : b-ta.has-hover ? Theme.line-hi : Theme.line;
+                        animate background, border-color { duration: 120ms; }
+                        Icon {
+                            d: Icons.bell;
+                            size: 19px;
+                            tint: AppState.notif-open || b-ta.has-hover ? Theme.fg : Theme.mut;
+                            // Kurz wackeln bei neuer Meldung
+                            property <float> t: AppState.bell-ring ? mod(animation-tick() / 1ms, 900) / 900 : 1;
+                            x: (parent.width - self.width) / 2 + (AppState.bell-ring ? sin(t * 4 * 360deg) * (1 - t) * 3px : 0);
+                        }
+                        b-ta := TouchArea {
+                            mouse-cursor: pointer;
+                            clicked => { AppState.notif-open = !AppState.notif-open; AppState.notif-toggled(AppState.notif-open); }
+                        }
+                        Badge { x: parent.width - self.width + 4px; y: -4px; count: AppState.unseen; }
+                    }
+                }
+                // Konto
+                VerticalLayout {
+                    alignment: center;
+                    Rectangle {
+                        height: 40px;
+                        width: acc.preferred-width;
+                        border-radius: 20px;
+                        border-width: 1px;
+                        border-color: a-ta.has-hover ? Theme.acc : Theme.line;
+                        acc := HorizontalLayout {
+                            padding-left: 5px;
+                            padding-right: 16px;
+                            spacing: 10px;
+                            VerticalLayout {
+                                alignment: center;
+                                Thumb { img: AppState.my-avatar; has-img: AppState.has-my-avatar; fallback: AppState.logged-in ? AppState.username : "?"; size: 30px; round: true; }
+                            }
+                            VerticalLayout {
+                                alignment: center;
+                                Text { text: AppState.logged-in ? AppState.username : "Anmelden"; color: Theme.fg; font-size: 13px; font-weight: 600; }
+                                Text { text: "Minecraft über Mojang"; color: Theme.mut; font-size: 11px; }
+                            }
+                        }
+                        a-ta := TouchArea { mouse-cursor: pointer; clicked => { AppState.page = AppState.logged-in ? "settings" : "friends"; } }
+                    }
+                }
+            }
+        }
+
+        // ---------- Inhalt ----------
+        Rectangle {
+            if AppState.page == "library": LibraryPage { }
+            if AppState.page == "instance": InstancePage { }
+            if AppState.page == "discover": DiscoverPage { }
+            if AppState.page == "friends": FriendsPage { }
+            if AppState.page == "settings": SettingsPage { }
+        }
+    }
+
+    // ---------- Ebenen darüber ----------
+    if AppState.notif-open: TouchArea {
+        clicked => { AppState.notif-open = false; AppState.notif-toggled(false); }
+    }
+    if AppState.notif-open: NotifPanel { x: root.width - self.width - 22px; y: 62px; }
+
+    if AppState.modal == "new-instance": NewInstanceDialog { }
+    if AppState.modal == "join": JoinDialog { }
+    if AppState.modal == "publish": PublishDialog { }
+    if AppState.modal == "push": PushDialog { }
+    if AppState.modal == "share": ShareDialog { }
+    if AppState.modal == "confirm": ConfirmDialog { }
+    if AppState.modal == "update": UpdateDialog { }
+
+    Toasts { x: root.width - 400px; y: root.height - self.preferred-height - 22px; width: 380px; }
+}

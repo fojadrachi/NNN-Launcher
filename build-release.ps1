@@ -1,14 +1,12 @@
 # Baut den NNN Launcher für ein Release:
 #   dist\NNN-Launcher-Setup-<Version>.exe   (Installer, für Updates aus der App)
 #   dist\NNN-Launcher-<Version>-win-x64.exe (portable, ohne Installation)
-# Die Version kommt aus launcher\PackLink.csproj (<Version>).
+# Die Version kommt aus Cargo.toml.
 param([string]$Iscc = "")
 
 $ErrorActionPreference = "Stop"
 $root = $PSScriptRoot
-$csproj = Join-Path $root "launcher\PackLink.csproj"
-$version = ([xml](Get-Content $csproj)).Project.PropertyGroup.Version | Where-Object { $_ } | Select-Object -First 1
-if (-not $version) { throw "Keine <Version> in PackLink.csproj gefunden" }
+$version = (Select-String -Path (Join-Path $root "Cargo.toml") -Pattern '^version\s*=\s*"([^"]+)"' | Select-Object -First 1).Matches[0].Groups[1].Value
 Write-Host "NNN Launcher $version" -ForegroundColor Yellow
 
 if (-not $Iscc) {
@@ -20,23 +18,21 @@ if (-not $Iscc) {
 }
 if (-not $Iscc) { throw "Inno Setup 6 nicht gefunden (winget install JRSoftware.InnoSetup)" }
 
-$self = Join-Path $root "build\self"
-if (Test-Path $self) { Remove-Item $self -Recurse -Force }
+Push-Location $root
+try {
+    # Cargo schreibt Fortschritt nach stderr – nur der Exitcode zählt
+    $ErrorActionPreference = "Continue"
+    cargo build --release 2>&1 | ForEach-Object { "$_" } | Where-Object { $_ -match "error|warning|Finished" }
+    $ErrorActionPreference = "Stop"
+    if ($LASTEXITCODE -ne 0) { throw "cargo build fehlgeschlagen" }
+} finally { Pop-Location }
+
+$exe = Join-Path $root "target\release\nnn-launcher.exe"
 $dist = Join-Path $root "dist"
 New-Item -ItemType Directory -Force $dist | Out-Null
-
-# Eigenständig: .NET steckt in der .exe, Freunde müssen nichts installieren
-dotnet publish $csproj -c Release -r win-x64 --self-contained true `
-    -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true `
-    -p:EnableCompressionInSingleFile=true -p:DebugType=none -o $self -nologo -v q
-if ($LASTEXITCODE -ne 0) { throw "dotnet publish fehlgeschlagen" }
-$exe = Join-Path $self "NNN Launcher.exe"
-
 Copy-Item $exe (Join-Path $dist "NNN-Launcher-$version-win-x64.exe") -Force
 
 & $Iscc /Q "/DAppVersion=$version" "/DSourceExe=$exe" (Join-Path $root "installer\NNN-Launcher.iss")
 if ($LASTEXITCODE -ne 0) { throw "Inno Setup fehlgeschlagen" }
 
-Get-ChildItem $dist -Filter "*$version*" | ForEach-Object {
-    "{0}  {1:N1} MB" -f $_.Name, ($_.Length / 1MB)
-}
+Get-ChildItem $dist -Filter "*$version*" | ForEach-Object { "{0}  {1:N1} MB" -f $_.Name, ($_.Length / 1MB) }

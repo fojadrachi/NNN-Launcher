@@ -1,0 +1,249 @@
+// Gemeinsamer Zustand zwischen Rust und Oberfläche
+
+export struct InstanceItem {
+    id: string,
+    name: string,
+    initial: string,
+    tint: color,
+    minecraft: string,
+    loader: string,
+    loader-version: string,
+    mod-count: int,
+    last-played: string,
+    shared: bool,
+    update: bool,
+    dirty: bool,
+    can-edit: bool,
+    role: string,
+    busy: bool,
+    status: string,
+    progress: float,
+    pack-version: int,
+    memory: string,
+    mc-index: int,
+    loader-index: int,
+}
+
+export struct ModItem {
+    name: string,
+    version: string,
+    source: string,
+    file: string,
+    dependency: bool,
+    icon: image,
+    has-icon: bool,
+}
+
+export struct HitItem {
+    title: string,
+    author: string,
+    description: string,
+    downloads: string,
+    url: string,
+    icon: image,
+    has-icon: bool,
+    installed: bool,
+    busy: bool,
+}
+
+export struct UserItem {
+    id: int,
+    name: string,
+    sub: string,
+    avatar: image,
+    has-avatar: bool,
+}
+
+export struct PackItem {
+    id: string,
+    name: string,
+    sub: string,
+    initial: string,
+    tint: color,
+    busy: bool,
+    progress: float,
+}
+
+export struct MemberItem {
+    id: int,
+    name: string,
+    role: string,
+    role-label: string,
+    is-me: bool,
+    avatar: image,
+    has-avatar: bool,
+}
+
+export struct VersionItem {
+    title: string,
+    sub: string,
+    changelog: string,
+    installed: bool,
+}
+
+export struct NotifItem {
+    key: string,
+    kind: string,
+    title: string,
+    text: string,
+    time: string,
+    unseen: bool,
+    history: bool,
+    a1-label: string,
+    a1-act: string,
+    a1-arg: string,
+    a2-label: string,
+    a2-act: string,
+    a2-arg: string,
+    avatar: image,
+    has-avatar: bool,
+}
+
+export struct ToastItem {
+    id: int,
+    text: string,
+    kind: string,
+}
+
+export global AppState {
+    // Navigation: "library" | "instance" | "discover" | "friends" | "settings"
+    in-out property <string> page: "library";
+    in-out property <string> tab: "mods";
+    in-out property <string> modal: "";
+
+    // Konto
+    in property <bool> logged-in;
+    in property <string> username;
+    in property <bool> server-online: true;
+    in property <image> my-avatar;
+    in property <bool> has-my-avatar;
+
+    // Bibliothek
+    in property <[InstanceItem]> instances;
+    in property <bool> has-hero;
+    in property <InstanceItem> hero;
+    in property <[PackItem]> open-packs;
+
+    // Instanz-Detail
+    in property <InstanceItem> current;
+    in property <[ModItem]> mods;
+    in property <[string]> local-mods;
+    in property <string> pack-name;
+    in property <string> pack-info;
+    in property <bool> pack-loaded;
+    in property <[MemberItem]> members;
+    in property <[VersionItem]> versions;
+    in property <bool> is-owner;
+
+    // Versionsauswahl (Neue Instanz / Einstellungen)
+    in property <[string]> mc-versions;
+    in property <[string]> loader-versions;
+    in property <[string]> loader-labels;
+    in property <int> loader-default;
+    in property <bool> loader-versions-loading;
+    in property <[string]> friend-names;
+
+    // Mods finden
+    in-out property <int> source: 0;
+    in-out property <string> query;
+    in property <[HitItem]> hits;
+    in property <bool> hits-loading;
+    in property <string> hits-error;
+    in property <bool> hits-more;
+    in property <[string]> targets;
+    in property <[string]> target-ids;
+    in-out property <int> target: 0;
+
+    // Freunde
+    in property <[UserItem]> friends;
+    in property <[UserItem]> incoming;
+    in property <[UserItem]> outgoing;
+    in property <int> incoming-count;
+
+    // Benachrichtigungen
+    in property <[NotifItem]> notifications;
+    in property <int> unseen;
+    in-out property <bool> notif-open;
+    in property <bool> bell-ring;
+
+    // Einstellungen & Update
+    in property <string> app-version;
+    in property <bool> app-installed;
+    in property <bool> update-available;
+    in property <string> update-version;
+    in property <string> update-notes;
+    in property <string> update-state;
+    in property <bool> update-busy;
+    in-out property <string> set-memory;
+    in-out property <string> set-jvm;
+    in-out property <string> set-launcher;
+    in-out property <bool> set-close;
+
+    // Dialoge
+    in-out property <string> confirm-title;
+    in-out property <string> confirm-text;
+    in-out property <string> confirm-ok;
+    in-out property <string> confirm-act;
+    in-out property <string> confirm-arg;
+    in property <string> share-code;
+    in property <string> share-url;
+    in-out property <string> join-code;
+    in property <string> join-preview;
+    in property <bool> join-ready;
+    in property <bool> modal-busy;
+
+    in property <[ToastItem]> toasts;
+
+    // Aktionen
+    callback open-instance(string);
+    callback play(string);
+    callback sync(string);
+    callback install-pack(string);
+    callback new-instance-dialog();
+    callback versions-for(string, int);
+    callback create-instance(string, string, int, string);
+    callback remove-mod(string, string);
+    callback open-folder(string);
+    callback save-instance(string, string, string, string, int, string);
+    callback delete-instance(string);
+    callback publish(string, string, string, bool);
+    callback push(string, string, bool);
+    callback share(string, int, int);
+    callback join-check(string);
+    callback join(string);
+    callback invite(string, int);
+    callback kick(string, int);
+    callback set-role(string, int, string);
+    callback leave-pack(string);
+    callback delete-pack(string);
+    callback search(bool);
+    callback install-hit(int);
+    callback open-url(string);
+    callback login(string, string);
+    callback register(string, string);
+    callback logout();
+    callback add-friend(string);
+    callback accept-friend(int);
+    callback remove-friend(int);
+    callback notif-toggled(bool);
+    callback notif-action(string, string);
+    callback notif-dismiss(string);
+    callback notif-read-all();
+    callback notif-clear();
+    callback save-settings();
+    callback check-update();
+    callback install-update();
+    callback copy(string);
+    callback confirmed(string, string);
+    callback dismiss-toast(int);
+
+    // Bestätigungsdialog öffnen
+    public function ask(title: string, text: string, ok: string, act: string, arg: string) {
+        confirm-title = title;
+        confirm-text = text;
+        confirm-ok = ok;
+        confirm-act = act;
+        confirm-arg = arg;
+        modal = "confirm";
+    }
+}

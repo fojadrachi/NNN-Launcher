@@ -1,8 +1,4 @@
-launcher/bin/
-launcher/obj/
+target/
 dist/
-server/node_modules/
-server/.wrangler/
-server/.dev.vars
-*.user
 build/
+*.user

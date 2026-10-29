@@ -1,0 +1,49 @@
+[package]
+name = "nnn-launcher"
+version = "2.0.0"
+edition = "2021"
+description = "NNN Launcher – Minecraft-Modpacks mit Freunden teilen und synchron halten"
+license = "UNLICENSED"
+publish = false
+
+[[bin]]
+# Wird beim Release zu "NNN Launcher.exe" umbenannt
+name = "nnn-launcher"
+path = "src/main.rs"
+
+[dependencies]
+slint = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "fs", "process", "sync", "time", "net", "io-util"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "gzip", "stream"] }
+futures = "0.3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha1 = "0.10"
+sha2 = "0.10"
+hex = "0.4"
+base64 = "0.22"
+zip = { version = "2", default-features = false, features = ["deflate"] }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "gif"] }
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+regex = "1"
+anyhow = "1"
+urlencoding = "2"
+open = "5"
+winreg = "0.52"
+windows-sys = { version = "0.59", features = [
+    "Win32_Foundation",
+    "Win32_Security_Cryptography",
+    "Win32_System_Threading",
+    "Win32_System_Memory",
+] }
+
+[build-dependencies]
+slint-build = "1"
+winresource = "0.1"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = true
+panic = "abort"

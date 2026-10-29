@@ -1,0 +1,353 @@
+import { ScrollView, ComboBox } from "std-widgets.slint";
+import { Theme, Icons } from "theme.slint";
+import { Button, IconButton, Icon, Card, ProgressBar, Label, Thumb, Field, TextArea, Check, Monogram } from "widgets.slint";
+import { AppState } from "state.slint";
+
+// ---------- Benachrichtigungen ----------
+
+export component NotifPanel inherits Rectangle {
+    width: 410px;
+    height: min(list.preferred-height + 64px, 580px);
+    border-radius: 18px;
+    background: Theme.panel;
+    border-width: 1px;
+    border-color: Theme.line;
+    drop-shadow-blur: 40px;
+    drop-shadow-color: #000000b0;
+    drop-shadow-offset-y: 16px;
+    clip: true;
+    TouchArea { }
+    VerticalLayout {
+        HorizontalLayout {
+            height: 56px;
+            padding-left: 18px;
+            padding-right: 14px;
+            spacing: 14px;
+            Text { text: "Benachrichtigungen"; color: Theme.fg; font-size: 16px; font-weight: 700; vertical-alignment: center; horizontal-stretch: 1; }
+            if AppState.unseen > 0: Text {
+                text: "Alle gelesen";
+                color: r-ta.has-hover ? Theme.acc-hi : Theme.acc;
+                font-size: 13px;
+                vertical-alignment: center;
+                r-ta := TouchArea { mouse-cursor: pointer; clicked => { AppState.notif-read-all(); } }
+            }
+            Text {
+                text: "Verlauf leeren";
+                color: c-ta.has-hover ? Theme.acc-hi : Theme.mut;
+                font-size: 13px;
+                vertical-alignment: center;
+                c-ta := TouchArea { mouse-cursor: pointer; clicked => { AppState.notif-clear(); } }
+            }
+        }
+        Rectangle { height: 1px; background: Theme.line; }
+        ScrollView {
+            list := VerticalLayout {
+                padding: 6px;
+                spacing: 2px;
+                if AppState.notifications.length == 0: VerticalLayout {
+                    padding: 36px;
+                    spacing: 10px;
+                    HorizontalLayout { alignment: center; Icon { d: Icons.bell; tint: Theme.dim; size: 34px; } }
+                    Text {
+                        text: AppState.logged-in ? "Alles erledigt – keine neuen Benachrichtigungen." : "Melde dich unter „Freunde“ an, um Updates und Anfragen zu sehen.";
+                        color: Theme.mut;
+                        horizontal-alignment: center;
+                        wrap: word-wrap;
+                    }
+                }
+                for n in AppState.notifications: Rectangle {
+                    border-radius: 12px;
+                    background: n-ta.has-hover ? Theme.panel-2 : transparent;
+                    n-ta := TouchArea { }
+                    HorizontalLayout {
+                        padding: 12px;
+                        spacing: 12px;
+                        Rectangle {
+                            width: 6px;
+                            VerticalLayout {
+                                alignment: start;
+                                padding-top: 6px;
+                                Rectangle { width: 6px; height: 6px; border-radius: 3px; background: n.unseen ? Theme.acc : transparent; }
+                            }
+                        }
+                        VerticalLayout {
+                            alignment: start;
+                            if n.has-avatar: Thumb { img: n.avatar; has-img: true; size: 38px; round: true; }
+                            if !n.has-avatar: Rectangle {
+                                width: 38px;
+                                height: 38px;
+                                border-radius: 11px;
+                                background: n.kind == "invite" ? #8fa8ff22 : n.kind == "friend-accepted" ? #57d68d22 : #f5b43c22;
+                                Icon {
+                                    size: 18px;
+                                    tint: n.kind == "invite" ? Theme.blue : n.kind == "friend-accepted" ? Theme.good : Theme.acc;
+                                    d: n.kind == "app-update" ? Icons.download : n.kind == "update" ? Icons.sync : n.kind == "dirty" ? Icons.upload
+                                        : n.kind == "invite" ? Icons.box : n.kind == "friend-accepted" ? Icons.check : Icons.bell;
+                                }
+                            }
+                        }
+                        VerticalLayout {
+                            spacing: 3px;
+                            horizontal-stretch: 1;
+                            Text { text: n.title; color: Theme.fg; font-weight: 600; font-size: 14px; wrap: word-wrap; }
+                            if n.text != "": Text { text: n.text; color: Theme.mut; font-size: 13px; wrap: word-wrap; }
+                            if n.time != "": Text { text: n.time; color: Theme.dim; font-size: 11px; font-family: Theme.mono; }
+                            if n.a1-label != "": HorizontalLayout {
+                                padding-top: 6px;
+                                spacing: 6px;
+                                alignment: start;
+                                Button { text: n.a1-label; kind: "primary"; small: true; clicked => { AppState.notif-action(n.a1-act, n.a1-arg); } }
+                                if n.a2-label != "": Button { text: n.a2-label; small: true; clicked => { AppState.notif-action(n.a2-act, n.a2-arg); } }
+                            }
+                        }
+                        if n.history: VerticalLayout {
+                            alignment: start;
+                            Rectangle {
+                                width: 24px;
+                                height: 24px;
+                                border-radius: 6px;
+                                background: x-ta.has-hover ? Theme.panel-3 : transparent;
+                                opacity: n-ta.has-hover || x-ta.has-hover ? 1 : 0;
+                                Icon { d: Icons.x; size: 13px; tint: Theme.mut; }
+                                x-ta := TouchArea { mouse-cursor: pointer; clicked => { AppState.notif-dismiss(n.key); } }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ---------- Dialog-Rahmen ----------
+
+component Dialog inherits Rectangle {
+    in property <string> title;
+    in property <length> dialog-width: 500px;
+    background: #07060acc;
+    // Klick daneben schließt
+    TouchArea { clicked => { if (!AppState.modal-busy) { AppState.modal = ""; } } }
+    fs := FocusScope {
+        key-pressed(e) => {
+            if (e.text == Key.Escape && !AppState.modal-busy) { AppState.modal = ""; return accept; }
+            return reject;
+        }
+    }
+    init => { fs.focus(); }
+    Rectangle {
+        width: dialog-width;
+        height: body.preferred-height + 48px;
+        border-radius: 22px;
+        background: Theme.panel;
+        border-width: 1px;
+        border-color: Theme.line;
+        drop-shadow-blur: 60px;
+        drop-shadow-color: #000000c0;
+        drop-shadow-offset-y: 24px;
+        TouchArea { }
+        body := VerticalLayout {
+            x: 26px;
+            y: 24px;
+            width: parent.width - 52px;
+            height: self.preferred-height;
+            spacing: 12px;
+            Text { text: title; color: Theme.fg; font-size: 22px; font-weight: 700; letter-spacing: -0.5px; }
+            @children
+        }
+    }
+}
+
+component Actions inherits HorizontalLayout {
+    spacing: 10px;
+    alignment: end;
+    padding-top: 8px;
+    @children
+}
+
+export component NewInstanceDialog inherits Dialog {
+    title: "Neue Instanz";
+    property <string> name;
+    Label { text: "NAME"; }
+    Field { text <=> name; placeholder: "z. B. Survival mit Freunden"; }
+    HorizontalLayout {
+        spacing: 12px;
+        VerticalLayout {
+            spacing: 6px;
+            Label { text: "MINECRAFT"; }
+            mc := ComboBox { model: AppState.mc-versions; selected => { AppState.versions-for(self.current-value, loader.current-index); } }
+        }
+        VerticalLayout {
+            spacing: 6px;
+            Label { text: "LOADER"; }
+            loader := ComboBox {
+                model: ["Vanilla", "Fabric", "Quilt", "Forge", "NeoForge"];
+                current-index: 1;
+                selected => { AppState.versions-for(mc.current-value, self.current-index); }
+            }
+        }
+    }
+    VerticalLayout {
+        spacing: 6px;
+        visible: loader.current-index > 0;
+        Label { text: AppState.loader-versions-loading ? "LOADER-VERSION (LÄDT …)" : "LOADER-VERSION"; }
+        lv := ComboBox { model: AppState.loader-labels; current-index: AppState.loader-default; }
+    }
+    Actions {
+        Button { text: "Abbrechen"; clicked => { AppState.modal = ""; } }
+        Button {
+            text: "Erstellen";
+            kind: "primary";
+            busy: AppState.modal-busy;
+            enabled: loader.current-index == 0 || AppState.loader-versions.length > 0;
+            clicked => {
+                AppState.create-instance(name, mc.current-value, loader.current-index,
+                    loader.current-index > 0 && AppState.loader-versions.length > 0 ? AppState.loader-versions[lv.current-index] : "");
+            }
+        }
+    }
+}
+
+export component JoinDialog inherits Dialog {
+    title: "Modpack beitreten";
+    property <string> code <=> AppState.join-code;
+    Text { text: "Füge den Code oder Einladungslink ein, den du bekommen hast."; color: Theme.mut; wrap: word-wrap; }
+    Field { text <=> code; placeholder: "z. B. ZN3cfTbw"; mono: true; accepted => { AppState.join-check(code); } }
+    if AppState.join-preview != "": Rectangle {
+        height: preview.preferred-height + 24px;
+        border-radius: 12px;
+        background: Theme.panel-2;
+        border-width: 1px;
+        border-color: Theme.line;
+        preview := Text { x: 14px; width: parent.width - 28px; text: AppState.join-preview; color: Theme.fg; wrap: word-wrap; }
+    }
+    Actions {
+        Button { text: "Abbrechen"; clicked => { AppState.modal = ""; } }
+        if !AppState.join-ready: Button { text: "Weiter"; kind: "primary"; busy: AppState.modal-busy; clicked => { AppState.join-check(code); } }
+        if AppState.join-ready: Button { text: "Beitreten & installieren"; kind: "primary"; busy: AppState.modal-busy; clicked => { AppState.join(code); } }
+    }
+}
+
+export component PublishDialog inherits Dialog {
+    title: "Pack teilen";
+    property <string> name: AppState.current.name;
+    property <string> desc;
+    property <bool> configs: true;
+    Label { text: "NAME"; }
+    Field { text <=> name; }
+    Label { text: "BESCHREIBUNG (OPTIONAL)"; }
+    TextArea { text <=> desc; placeholder: "Worum geht's?"; }
+    Check { text: "Config-Dateien mitschicken (config, defaultconfigs, kubejs)"; checked <=> configs; }
+    Actions {
+        Button { text: "Abbrechen"; clicked => { AppState.modal = ""; } }
+        Button { text: "Hochladen"; icon: Icons.upload; kind: "primary"; busy: AppState.modal-busy; clicked => { AppState.publish(AppState.current.id, name, desc, configs); } }
+    }
+}
+
+export component PushDialog inherits Dialog {
+    title: "Update veröffentlichen";
+    property <string> changelog;
+    property <bool> configs: true;
+    Text { text: "Alle Mitglieder von „" + AppState.current.name + "“ sehen das Update und laden es mit einem Klick. (" + AppState.current.mod-count + " Mods)"; color: Theme.mut; wrap: word-wrap; }
+    Label { text: "WAS IST NEU?"; }
+    TextArea { text <=> changelog; placeholder: "z. B. Create + Farmer's Delight dazu, JEI aktualisiert"; }
+    Check { text: "Config-Dateien mitschicken"; checked <=> configs; }
+    Actions {
+        Button { text: "Abbrechen"; clicked => { AppState.modal = ""; } }
+        Button { text: "Veröffentlichen"; icon: Icons.upload; kind: "primary"; busy: AppState.modal-busy; clicked => { AppState.push(AppState.current.id, changelog, configs); } }
+    }
+}
+
+export component ShareDialog inherits Dialog {
+    title: "Einladungslink";
+    dialog-width: 620px;
+    Text { text: "Schick den Link an Freunde (z. B. in Discord). Mit dem NNN Launcher installieren sie das Pack mit einem Klick und bekommen alle Updates."; color: Theme.mut; wrap: word-wrap; }
+    HorizontalLayout {
+        spacing: 12px;
+        VerticalLayout { spacing: 6px; Label { text: "GÜLTIG"; } days := ComboBox { model: ["Unbegrenzt", "1 Tag", "7 Tage", "30 Tage"]; current-index: 2; } }
+        VerticalLayout { spacing: 6px; Label { text: "MAX. NUTZUNGEN"; } uses := ComboBox { model: ["Unbegrenzt", "1", "5", "10"]; current-index: 3; } }
+    }
+    if AppState.share-code != "": VerticalLayout {
+        spacing: 10px;
+        Rectangle {
+            height: 76px;
+            border-radius: 14px;
+            background: Theme.bg;
+            border-width: 1px;
+            border-color: Theme.acc;
+            Text { text: AppState.share-code; color: Theme.acc; font-size: 34px; font-weight: 700; font-family: Theme.mono; letter-spacing: 6px; }
+        }
+        HorizontalLayout {
+            spacing: 8px;
+            Rectangle {
+                horizontal-stretch: 1;
+                height: 40px;
+                border-radius: 10px;
+                background: Theme.bg;
+                border-width: 1px;
+                border-color: Theme.line;
+                Text { x: 12px; text: AppState.share-url; color: Theme.fg; font-family: Theme.mono; font-size: 13px; overflow: elide; width: parent.width - 24px; }
+            }
+            Button { text: "Link"; icon: Icons.copy; clicked => { AppState.copy(AppState.share-url); } }
+            Button { text: "Code"; icon: Icons.copy; clicked => { AppState.copy(AppState.share-code); } }
+        }
+    }
+    Actions {
+        Button { text: "Schließen"; clicked => { AppState.modal = ""; } }
+        Button { text: "Link erstellen"; icon: Icons.link; kind: "primary"; busy: AppState.modal-busy; clicked => { AppState.share(AppState.current.id, days.current-index, uses.current-index); } }
+    }
+}
+
+export component ConfirmDialog inherits Dialog {
+    title: AppState.confirm-title;
+    dialog-width: 460px;
+    Text { text: AppState.confirm-text; color: Theme.mut; wrap: word-wrap; }
+    Actions {
+        Button { text: "Abbrechen"; clicked => { AppState.modal = ""; } }
+        Button { text: AppState.confirm-ok; kind: "danger"; clicked => { AppState.modal = ""; AppState.confirmed(AppState.confirm-act, AppState.confirm-arg); } }
+    }
+}
+
+export component UpdateDialog inherits Dialog {
+    title: "NNN Launcher " + AppState.update-version;
+    dialog-width: 620px;
+    Text {
+        text: "Du hast Version " + AppState.app-version + ". Der Launcher lädt das Update, installiert es und startet neu. Deine Instanzen, Welten und Einstellungen bleiben erhalten.";
+        color: Theme.mut;
+        wrap: word-wrap;
+    }
+    if AppState.update-notes != "": Rectangle {
+        height: min(notes.preferred-height + 28px, 280px);
+        border-radius: 12px;
+        background: Theme.panel-2;
+        border-width: 1px;
+        border-color: Theme.line;
+        clip: true;
+        notes := Text { x: 14px; y: 14px; width: parent.width - 28px; text: AppState.update-notes; color: Theme.fg; font-size: 13px; wrap: word-wrap; vertical-alignment: top; }
+    }
+    if AppState.update-busy: ProgressBar { }
+    Actions {
+        Button { text: "Später"; enabled: !AppState.update-busy; clicked => { AppState.modal = ""; } }
+        Button { text: AppState.update-busy ? "Wird installiert …" : "Aktualisieren & neu starten"; kind: "primary"; busy: AppState.update-busy; clicked => { AppState.install-update(); } }
+    }
+}
+
+// ---------- Toasts ----------
+
+export component Toasts inherits VerticalLayout {
+    spacing: 8px;
+    alignment: end;
+    for t in AppState.toasts: Rectangle {
+        width: 380px;
+        height: tt.preferred-height + 24px;
+        border-radius: 12px;
+        background: Theme.panel-2;
+        border-width: 1px;
+        border-color: Theme.line;
+        drop-shadow-blur: 24px;
+        drop-shadow-color: #00000090;
+        drop-shadow-offset-y: 8px;
+        Rectangle { x: 0; width: 4px; height: parent.height; border-radius: 2px; background: t.kind == "error" ? Theme.bad : t.kind == "warn" ? Theme.blue : Theme.acc; }
+        tt := Text { x: 18px; width: parent.width - 32px; text: t.text; color: Theme.fg; font-size: 13px; wrap: word-wrap; }
+        TouchArea { mouse-cursor: pointer; clicked => { AppState.dismiss-toast(t.id); } }
+    }
+}

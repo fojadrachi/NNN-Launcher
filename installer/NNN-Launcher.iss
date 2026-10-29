@@ -5,7 +5,7 @@
   #define AppVersion "0.0.0"
 #endif
 #ifndef SourceExe
-  #define SourceExe "..\build\self\NNN Launcher.exe"
+  #define SourceExe "..\target\release\nnn-launcher.exe"
 #endif
 
 [Setup]
@@ -30,7 +30,7 @@ ArchitecturesInstallIn64BitMode=x64compatible
 MinVersion=10.0
 OutputDir=..\dist
 OutputBaseFilename=NNN-Launcher-Setup-{#AppVersion}
-SetupIconFile=..\launcher\icon.ico
+SetupIconFile=..\assets\icon.ico
 UninstallDisplayIcon={app}\NNN Launcher.exe
 UninstallDisplayName=NNN Launcher
 WizardStyle=modern
