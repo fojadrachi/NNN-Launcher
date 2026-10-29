@@ -5,8 +5,12 @@ Oberfläche mit [Slint](https://slint.dev). Schnell, klein (rund 20 MB) und ohne
 
 ## Funktionen
 
-- **Mods, Texturepacks und Shader finden** auf Modrinth und CurseForge – Abhängigkeiten von Mods werden automatisch
-  mitinstalliert, Texturepacks landen in `resourcepacks/`, Shader in `shaderpacks/`
+- **Mods, Texturepacks und Shader finden** auf Modrinth – Abhängigkeiten von Mods werden automatisch
+  mitinstalliert, Texturepacks landen in `resourcepacks/`, Shader in `shaderpacks/`.
+  CurseForge ist vorbereitet, aber ausgeschaltet (`CURSEFORGE` in `src/mods.rs`).
+- **Ordner-Scan:** Dateien, die man selbst in `mods/`, `resourcepacks/` oder `shaderpacks/` legt, werden per Prüfsumme
+  bei Modrinth erkannt und ins Pack übernommen; unbekannte zeigt der Launcher mit Name, Version und Icon aus der Datei.
+  Von Hand gelöschte Dateien verschwinden automatisch aus der Liste.
 - **Loader:** Fabric, Quilt, Forge, NeoForge und Vanilla
 - **Spielstart über den offiziellen Minecraft Launcher** (wie bei CurseForge): Der NNN Launcher legt ein Profil
   „NNN: &lt;Name&gt;“ an und öffnet den Launcher von Mojang mit eigenem Arbeitsordner. Anmeldung und Spieldateien

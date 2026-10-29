@@ -3,7 +3,7 @@
 //! über den offiziellen Launcher vor (ohne ihn zu öffnen) und räumt danach wieder auf.
 
 use crate::instances::Kind;
-use crate::{instances, loaders, minecraft, mods, official, paths};
+use crate::{instances, loaders, minecraft, mods, net, official, paths, scan};
 use std::io::Write;
 
 pub fn run() -> i32 {
@@ -62,6 +62,45 @@ pub fn run() -> i32 {
                 w(format!("Hash {}: {}", i.id, if *h == instances::manifest_hash(&i.manifest) { "passt" } else { "ABWEICHUNG" }));
             }
         }
+
+        // Ordner-Scan: Dateien von Hand hineinlegen
+        let scan_inst = instances::create("NNN Scan-Test", "1.20.1", "fabric", Some("0.20.1".into()))?;
+        let mods_dir = scan_inst.game_dir().join("mods");
+        net::download_one(&net::DlItem {
+            url: last.manifest.mods[0].url.clone(),
+            path: mods_dir.join("von-hand-kopiert.jar"),
+            sha1: None,
+            size: 0,
+        })
+        .await?;
+        {
+            // Selbst gebauter Mod mit fabric.mod.json und Icon
+            let f = std::fs::File::create(mods_dir.join("mein-mod-1.0.jar"))?;
+            let mut z = zip::ZipWriter::new(f);
+            let o = zip::write::SimpleFileOptions::default();
+            z.start_file("fabric.mod.json", o)?;
+            z.write_all(br#"{"schemaVersion":1,"id":"meinmod","name":"Mein Test-Mod","version":"1.0.3"}"#)?;
+            z.finish()?;
+        }
+        let r = scan::scan(&scan_inst).await?;
+        for f in &r.found {
+            w(format!(
+                "Scan: {} → {}",
+                f.file_name,
+                match &f.entry {
+                    Some(e) => format!("erkannt: {} {} ({})", e.name, e.version_name.clone().unwrap_or_default(), e.source),
+                    None => format!("nicht erkannt, aus Datei: „{}“ {}", f.meta_name, f.meta_version),
+                }
+            ));
+        }
+        let adopt: Vec<(Kind, instances::ModEntry)> = r.found.iter().filter_map(|f| Some((f.kind?, f.entry.clone()?))).collect();
+        let s = instances::adopt(&scan_inst.id, adopt, &r.missing)?;
+        w(format!("Übernommen ins Pack: {}", s.manifest.mods.iter().map(|m| format!("{} ({})", m.name, m.file_name)).collect::<Vec<_>>().join(", ")));
+        std::fs::remove_file(mods_dir.join("von-hand-kopiert.jar"))?;
+        let r2 = scan::scan(&s).await?;
+        let s2 = instances::adopt(&scan_inst.id, vec![], &r2.missing)?;
+        w(format!("Nach Löschen: fehlend erkannt {:?}, Mods im Pack jetzt {}", r2.missing.iter().map(|m| &m.1).collect::<Vec<_>>(), s2.manifest.mods.len()));
+        instances::delete(&scan_inst.id)?;
 
         instances::delete(&inst.id)?;
         w("Aufgeräumt".into());

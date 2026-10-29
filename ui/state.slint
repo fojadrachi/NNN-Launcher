@@ -136,7 +136,8 @@ export global AppState {
     in property <[ModItem]> resourcepacks;
     in property <[ModItem]> shaders;
     in property <bool> has-shader-loader;
-    in property <[string]> local-mods;
+    in property <[ModItem]> local-items;
+    in property <bool> scanning;
     in property <string> pack-name;
     in property <string> pack-info;
     in property <bool> pack-loaded;
@@ -157,6 +158,7 @@ export global AppState {
     // 0 = Mods, 1 = Texturepacks, 2 = Shader
     in-out property <int> kind: 0;
     in-out property <int> source: 0;
+    in property <bool> curseforge-enabled: false;
     in-out property <string> query;
     in property <[HitItem]> hits;
     in property <bool> hits-loading;
@@ -216,6 +218,7 @@ export global AppState {
     callback create-instance(string, string, int, string);
     callback remove-mod(string, string, string);
     callback open-folder(string);
+    callback scan(string);
     callback save-instance(string, string, string, string, int, string);
     callback delete-instance(string);
     callback publish(string, string, string, bool);

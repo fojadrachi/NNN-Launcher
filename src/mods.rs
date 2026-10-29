@@ -9,6 +9,10 @@ use std::collections::HashSet;
 
 const MR: &str = "https://api.modrinth.com/v2";
 
+/// CurseForge ist vorerst ausgeschaltet (Suche, Auswahl in der Oberfläche, Ordner-Scan).
+/// Zum Einschalten auf `true` setzen – der Server-Proxy ist schon vorbereitet.
+pub const CURSEFORGE: bool = false;
+
 #[derive(Clone, Debug, Default)]
 pub struct Hit {
     pub source: String,
@@ -49,7 +53,7 @@ fn cf_loader(loader: &str) -> Option<u8> {
 }
 
 pub async fn search(kind: Kind, source: &str, query: &str, inst: Option<&Instance>, offset: usize) -> Result<(Vec<Hit>, usize)> {
-    if source == "curseforge" { cf_search(kind, query, inst, offset).await } else { mr_search(kind, query, inst, offset).await }
+    if CURSEFORGE && source == "curseforge" { cf_search(kind, query, inst, offset).await } else { mr_search(kind, query, inst, offset).await }
 }
 
 async fn mr_search(kind: Kind, query: &str, inst: Option<&Instance>, offset: usize) -> Result<(Vec<Hit>, usize)> {

@@ -106,6 +106,7 @@ component ModsTab inherits VerticalLayout {
             vertical-alignment: center;
         }
         Rectangle { horizontal-stretch: 1; }
+        Button { text: AppState.scanning ? "Scannt …" : "Ordner scannen"; icon: Icons.search; busy: AppState.scanning; clicked => { AppState.scan(AppState.current.id); } }
         Button { text: "Ordner"; icon: Icons.folder; clicked => { AppState.open-folder(AppState.current.id); } }
     }
 
@@ -140,12 +141,16 @@ component ModsTab inherits VerticalLayout {
     }
     for m in AppState.shaders: ItemRow { m: m; }
 
-    if AppState.local-mods.length > 0: SectionTitle { text: "EIGENE DATEIEN"; }
-    if AppState.local-mods.length > 0: Text { text: "Selbst hineinkopiert – werden nicht mit dem Pack geteilt und beim Sync nicht angefasst."; color: Theme.mut; font-size: 12px; wrap: word-wrap; }
-    for f in AppState.local-mods: Card {
-        height: 48px;
-        HorizontalLayout { padding-left: 16px; Text { text: f; color: Theme.fg; font-family: Theme.mono; font-size: 13px; vertical-alignment: center; overflow: elide; } }
+    if AppState.local-items.length > 0: Section { title: "NUR LOKAL"; count: AppState.local-items.length; can-add: false; }
+    if AppState.local-items.length > 0: Text {
+        text: AppState.current.can-edit
+            ? "Diese Dateien liegen im Ordner, sind aber nicht auf Modrinth zu finden (z. B. selbst gebaute Mods). Sie werden nicht mit dem Pack geteilt."
+            : "Diese Dateien hast du selbst hinzugefügt. Sie gehören nicht zum geteilten Pack und werden beim Sync nicht angefasst.";
+        color: Theme.mut;
+        font-size: 12px;
+        wrap: word-wrap;
     }
+    for m in AppState.local-items: ItemRow { m: m; }
 }
 
 component PackTab inherits VerticalLayout {

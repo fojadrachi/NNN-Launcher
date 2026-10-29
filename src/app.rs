@@ -3,7 +3,7 @@
 use crate::instances::{self, Instance, Kind};
 use crate::settings::{self, Event, NotifStore, Outgoing, Settings};
 use crate::session::{self, User};
-use crate::{api, loaders, minecraft, mods, official, updater, AppState, AppWindow};
+use crate::{api, loaders, minecraft, mods, official, scan, updater, AppState, AppWindow};
 use crate::{HitItem, InstanceItem, MemberItem, ModItem, NotifItem, PackItem, ToastItem, UserItem, VersionItem};
 use anyhow::Result;
 use slint::{ComponentHandle, ModelRc, Rgba8Pixel, SharedPixelBuffer, SharedString, VecModel};
@@ -53,6 +53,9 @@ pub struct Data {
     reported: HashMap<String, i64>,
     /// Zwangs-Updates, die in dieser Sitzung schon versucht wurden
     forced_tried: HashSet<String>,
+    /// Dateien im Instanzordner, die nicht im Pack sind (nach Ordner-Scan)
+    scan_found: HashMap<String, Vec<scan::Found>>,
+    scanning: HashSet<String>,
 }
 
 pub struct Ctrl {
@@ -444,10 +447,76 @@ impl Ctrl {
         self.refresh();
         let mc = inst.manifest.minecraft.clone();
         let li = loaders::LOADERS.iter().position(|l| *l == inst.manifest.loader).unwrap_or(0) as i32;
+        self.scan_instance(id.to_string(), false);
         self.spawn(move |c| async move {
             c.ensure_mc_versions().await;
             c.load_loader_versions(mc, li).await;
             c.load_current_pack().await;
+        });
+    }
+
+    /// Ordner der Instanz scannen. Erkannte Dateien werden übernommen (wenn man das Pack bearbeiten darf),
+    /// von Hand gelöschte aus der Liste entfernt.
+    pub fn scan_instance(self: &C, id: String, manual: bool) {
+        if !self.with(|d| d.scanning.insert(id.clone())) {
+            return;
+        }
+        if manual {
+            self.refresh();
+        }
+        self.spawn(move |c| async move {
+            let res: Result<(usize, usize)> = async {
+                let inst = instances::get(&id)?;
+                let r = scan::scan(&inst).await?;
+                let can_edit = inst.can_edit();
+                let mut adopt = Vec::new();
+                let mut rest = Vec::new();
+                for mut f in r.found {
+                    // Icons aus der Datei für die Anzeige vorbereiten
+                    if let Some(png) = f.icon_png.take() {
+                        let key = format!("local:{}/{}", id, f.file_name);
+                        if let Some(px) = tokio::task::spawn_blocking(move || decode(&png)).await.ok().flatten() {
+                            c.with(|d| d.images.insert(key, px));
+                        }
+                    }
+                    if let Some(u) = f.entry.as_ref().and_then(|e| e.icon_url.clone()) {
+                        c.want_image(&u);
+                    }
+                    match (&f.entry, f.kind) {
+                        (Some(e), Some(k)) if can_edit => adopt.push((k, e.clone())),
+                        _ => rest.push(f),
+                    }
+                }
+                let missing = if can_edit { r.missing } else { vec![] };
+                let (added, removed) = (adopt.len(), missing.len());
+                if added > 0 || removed > 0 {
+                    let i = instances::adopt(&id, adopt, &missing)?;
+                    c.upsert(i);
+                }
+                c.with(|d| {
+                    d.scan_found.insert(id.clone(), rest);
+                });
+                Ok((added, removed))
+            }
+            .await;
+            c.with(|d| d.scanning.remove(&id));
+            match res {
+                Ok((a, r)) if a > 0 || r > 0 => {
+                    let mut parts = Vec::new();
+                    if a > 0 {
+                        parts.push(format!("{a} neue Datei(en) erkannt und übernommen"));
+                    }
+                    if r > 0 {
+                        parts.push(format!("{r} gelöschte entfernt"));
+                    }
+                    c.toast(format!("Ordner gescannt: {}", parts.join(", ")), "");
+                }
+                Ok(_) if manual => c.toast("Ordner gescannt – alles aktuell", ""),
+                Ok(_) => {}
+                Err(e) if manual => c.fail(e),
+                Err(_) => {}
+            }
+            c.refresh();
         });
     }
 
@@ -1030,6 +1099,12 @@ pub fn parse_code(s: &str) -> String {
 
 pub fn avatar_url(name: &str) -> String { format!("https://mc-heads.net/avatar/{}/64", urlencoding::encode(name)) }
 
+fn decode(bytes: &[u8]) -> Option<Pixels> {
+    let img = image::load_from_memory(bytes).ok()?;
+    let img = img.resize_to_fill(96, 96, image::imageops::FilterType::Triangle).to_rgba8();
+    Some(SharedPixelBuffer::<Rgba8Pixel>::clone_from_slice(img.as_raw(), img.width(), img.height()))
+}
+
 async fn load_image(url: &str) -> Option<Pixels> {
     let bytes = crate::net::get_bytes(url).await.ok()?;
     tokio::task::spawn_blocking(move || {
@@ -1304,9 +1379,37 @@ fn apply(c: &C, ui: &AppWindow, d: &Data) {
         s.set_resourcepacks(items(Kind::ResourcePack));
         s.set_shaders(items(Kind::Shader));
         s.set_has_shader_loader(cur.has_shader_loader());
-        s.set_local_mods(strings(Kind::ALL.iter().flat_map(|k| {
-            instances::local_files(cur, *k).into_iter().map(move |f| format!("{}/{}", k.folder(), f))
-        })));
+        let found = d.scan_found.get(&cur.id);
+        let local: Vec<ModItem> = Kind::ALL
+            .iter()
+            .flat_map(|k| instances::local_files(cur, *k).into_iter().map(move |f| (*k, f)))
+            .map(|(k, f)| {
+                let info = found.and_then(|v| v.iter().find(|x| x.file_name.eq_ignore_ascii_case(&f)));
+                let entry = info.and_then(|i| i.entry.as_ref());
+                let (icon, has_icon) = match entry.and_then(|e| e.icon_url.as_deref()) {
+                    Some(u) => image_of(d, Some(u)),
+                    None => image_of(d, Some(&format!("local:{}/{}", cur.id, f))),
+                };
+                let name = entry.map(|e| e.name.clone()).or_else(|| info.map(|i| i.meta_name.clone()).filter(|n| !n.is_empty())).unwrap_or_else(|| f.clone());
+                let version = entry
+                    .and_then(|e| e.version_name.clone())
+                    .or_else(|| info.map(|i| i.meta_version.clone()).filter(|v| !v.is_empty()))
+                    .unwrap_or_default();
+                let origin = if entry.is_some() { "Modrinth" } else { "nicht erkannt" };
+                ModItem {
+                    name: name.into(),
+                    version: (if version.is_empty() { f.clone() } else { format!("{version} · {f}") }).into(),
+                    source: format!("{} · {origin}", k.label()).into(),
+                    file: f.into(),
+                    kind: k.key().into(),
+                    dependency: false,
+                    icon,
+                    has_icon,
+                }
+            })
+            .collect();
+        s.set_local_items(model(local));
+        s.set_scanning(d.scanning.contains(&cur.id));
         let me = user.map(|u| u.id).unwrap_or(0);
         match &d.current_pack {
             Some(p) => {

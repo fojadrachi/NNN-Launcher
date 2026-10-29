@@ -33,7 +33,7 @@ export component DiscoverPage inherits ScrollView {
         }
         HorizontalLayout {
             spacing: 10px;
-            Segmented {
+            if AppState.curseforge-enabled: Segmented {
                 options: ["Modrinth", "CurseForge"];
                 current <=> AppState.source;
                 changed => { AppState.search(false); }
@@ -334,7 +334,7 @@ export component SettingsPage inherits ScrollView {
                 }
             }
         }
-        Text { text: "Server: launcher.nnn-server.de · Mods von Modrinth und CurseForge"; color: Theme.dim; font-size: 12px; }
+        Text { text: "Server: launcher.nnn-server.de · Inhalte von Modrinth"; color: Theme.dim; font-size: 12px; }
         HorizontalLayout { alignment: start; AboutSlint { width: 220px; height: 120px; } }
     }
 }

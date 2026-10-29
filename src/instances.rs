@@ -487,3 +487,23 @@ pub fn unlink_pack(id: &str) -> Result<Instance> {
     save(&i)?;
     Ok(i)
 }
+
+/// Übernimmt per Ordner-Scan erkannte Dateien ins Manifest und entfernt Einträge, deren Datei
+/// von Hand gelöscht wurde. Die Dateien liegen schon im Ordner, es wird nichts geladen.
+pub fn adopt(id: &str, found: Vec<(Kind, ModEntry)>, missing: &[(Kind, String)]) -> Result<Instance> {
+    let mut i = get(id)?;
+    for (k, file) in missing {
+        i.manifest.list_mut(*k).retain(|m| !m.file_name.eq_ignore_ascii_case(file));
+        let rel = rel_path(*k, file);
+        i.managed_files.retain(|f| !f.eq_ignore_ascii_case(&rel));
+    }
+    for (k, m) in found {
+        if !k.ext_ok(&m.file_name) || i.manifest.list(k).iter().any(|x| x.file_name.eq_ignore_ascii_case(&m.file_name)) {
+            continue;
+        }
+        i.managed_files.push(rel_path(k, &m.file_name));
+        i.manifest.list_mut(k).push(m);
+    }
+    save(&i)?;
+    Ok(i)
+}

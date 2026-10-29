@@ -183,4 +183,6 @@ pub async fn join(code: &str) -> Result<Pack> { Ok(serde_json::from_value::<Pack
 
 // ---------- CurseForge über den Server ----------
 
+pub async fn curseforge_post(path: &str, body: Value) -> Result<Value> { post(&format!("/cf{path}"), body).await }
+
 pub async fn curseforge(path_and_query: &str) -> Result<Value> { request(reqwest::Method::GET, &format!("/cf{path_and_query}"), None).await }

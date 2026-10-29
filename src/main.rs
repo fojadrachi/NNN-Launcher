@@ -10,6 +10,7 @@ mod mods;
 mod net;
 mod official;
 mod paths;
+mod scan;
 mod selftest;
 mod session;
 mod settings;
@@ -65,6 +66,10 @@ fn main() -> Result<(), slint::PlatformError> {
     let state = ui.global::<AppState>();
     let s = ctrl.settings();
     state.set_app_version(net::VERSION.into());
+    state.set_curseforge_enabled(mods::CURSEFORGE);
+    if !mods::CURSEFORGE {
+        state.set_source(0);
+    }
     state.set_app_installed(updater::is_installed());
     state.set_set_memory(s.memory_mb.to_string().into());
     state.set_set_jvm(s.jvm_args.into());
@@ -84,6 +89,10 @@ fn main() -> Result<(), slint::PlatformError> {
             tokio::time::sleep(std::time::Duration::from_secs(30)).await;
             tick += 1;
             c.refresh_server().await;
+            // Offene Instanz regelmäßig scannen (unveränderte Dateien werden nicht neu gelesen)
+            if let Some(id) = c.current_id() {
+                c.scan_instance(id, false);
+            }
             if tick % 720 == 0 {
                 c.check_update(false).await;
             }
@@ -141,8 +150,12 @@ fn screenshot_tour(ui: &AppWindow, dir: String) {
         s.set_notif_open(extra == "notif");
         s.set_modal(if extra == "new-instance" { "new-instance".into() } else { "".into() });
         if page == "instance" {
-            if let Some(first) = s.get_instances().row_data(0) {
-                s.invoke_open_instance(first.id);
+            // NNN_SHOT_INSTANCE wählt eine bestimmte Instanz, sonst die erste
+            let wanted = std::env::var("NNN_SHOT_INSTANCE").ok();
+            let list = s.get_instances();
+            let pick = (0..list.row_count()).filter_map(|i| list.row_data(i)).find(|x| wanted.as_deref() == Some(x.id.as_str())).or_else(|| list.row_data(0));
+            if let Some(inst) = pick {
+                s.invoke_open_instance(inst.id);
             }
         }
         if page == "discover" {
@@ -280,6 +293,7 @@ fn wire(ui: &AppWindow, ctrl: &app::C) {
             Err(e) => c.fail(e),
         }
     });
+    on!(on_scan, |c, id: slint::SharedString| c.scan_instance(id.into(), true));
     on!(on_open_folder, |_c, id: slint::SharedString| {
         let dir = instances::game_dir(&id);
         let _ = std::fs::create_dir_all(&dir);
