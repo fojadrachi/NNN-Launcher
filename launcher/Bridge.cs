@@ -64,7 +64,23 @@ class Bridge
         {
             case "app.ready":
                 _form.OnUiReady();
-                return new { version = "1.0.0", root = AppPaths.Root };
+                return new { version = AppUpdater.CurrentText, root = AppPaths.Root, installed = AppUpdater.IsInstalled };
+
+            // ---------- App-Updates ----------
+            case "app.checkUpdate":
+                return await AppUpdater.Check();
+            case "app.installUpdate":
+            {
+                var ct = StartJob("app-update");
+                try
+                {
+                    await AppUpdater.Install(ProgressFor("app-update"), ct);
+                }
+                finally { EndJob("app-update"); }
+                // Kurz warten, damit die Oberfläche die Meldung noch zeigt, dann beenden (Setup ersetzt die Datei)
+                _ = Task.Delay(800).ContinueWith(_ => _form.BeginInvoke(() => Application.Exit()));
+                return true;
+            }
 
             // ---------- Einstellungen ----------
             case "settings.get":

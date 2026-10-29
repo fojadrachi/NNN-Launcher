@@ -60,7 +60,7 @@ static class GameLauncher
             ["version_type"] = v.Type,
             ["natives_directory"] = natives,
             ["launcher_name"] = "NNN Launcher",
-            ["launcher_version"] = "1.0.0",
+            ["launcher_version"] = AppUpdater.CurrentText,
             ["classpath"] = string.Join(';', cp),
             ["classpath_separator"] = ";",
             ["library_directory"] = AppPaths.Libraries,

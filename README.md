@@ -101,3 +101,13 @@ Bis dahin funktionieren Offline-Konten (Einzelspieler, Server mit `online-mode=f
 
 Space Grotesk und JetBrains Mono liegen in `launcher/wwwroot/fonts` und stehen unter der
 [SIL Open Font License 1.1](https://openfontlicense.org).
+
+## Release bauen
+
+```powershell
+.\build-release.ps1
+```
+
+Baut aus der `<Version>` in `launcher/PackLink.csproj` das Setup (`dist/NNN-Launcher-Setup-<Version>.exe`, Inno Setup 6)
+und die portable `.exe`. Beide als GitHub-Release mit Tag `v<Version>` hochladen – der Launcher findet das Setup
+über `releases/latest` und bietet es als Update an.

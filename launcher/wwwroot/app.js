@@ -425,6 +425,12 @@ function addEvent(ev) {
 function buildNotifications() {
   const out = [];
   const me = S.session.user?.id;
+  const up = S.appUpdate;
+  if (up && up.available) out.push({
+    key: 'app:' + up.latest, kind: 'app-update', time: null,
+    title: `NNN Launcher ${up.latest} ist da`, text: `Du hast Version ${up.current}. Das Update dauert nur ein paar Sekunden.`,
+    actions: [{ label: 'Jetzt aktualisieren', act: 'appUpdate', data: { v: up.latest }, primary: true }],
+  });
   for (const u of S.friends.incoming) out.push({
     key: 'fr:' + u.id, kind: 'friend', time: u.since, user: u.username,
     title: `${u.username} möchte mit dir befreundet sein`,
@@ -458,7 +464,7 @@ function buildNotifications() {
 
 function notifIcon(n) {
   if (n.user) return `<div class="notif-ico"><img src="https://mc-heads.net/avatar/${encodeURIComponent(n.user)}/64" alt=""></div>`;
-  const map = { update: ['acc', ICON.sync], dirty: ['acc', ICON.upload], invite: ['blue', ICON.box], 'friend-accepted': ['good', ICON.check] };
+  const map = { 'app-update': ['acc', '<svg viewBox="0 0 24 24"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>'], update: ['acc', ICON.sync], dirty: ['acc', ICON.upload], invite: ['blue', ICON.box], 'friend-accepted': ['good', ICON.check] };
   const [cls, ico] = map[n.kind] || ['', BELL];
   return `<div class="notif-ico ${cls}">${ico}</div>`;
 }
@@ -876,7 +882,17 @@ function viewSettings() {
     <label class="check"><input type="checkbox" id="sSnap" ${s.showSnapshots ? 'checked' : ''}>Snapshots anzeigen</label>
     <label class="check"><input type="checkbox" id="sClose" ${s.closeOnLaunch ? 'checked' : ''}>Launcher beim Spielstart minimieren</label>
     <button class="btn primary" data-act="saveSettings">Speichern</button>
-    <p class="muted small" style="margin-top:20px">NNN Launcher ${esc(S.appVersion || '')} · Java wird automatisch passend zur Minecraft-Version geladen.</p>
+
+    <h2>Über den NNN Launcher</h2>
+    <div class="card"><div class="row" style="flex-wrap:wrap">
+      <div class="grow"><h3>Version <span class="mono">${esc(S.appVersion || '?')}</span></h3>
+        <div class="muted small">${S.appInstalled ? 'Installiert' : 'Portable Version – mit „Aktualisieren“ wird der Launcher installiert'} · Updates kommen über GitHub</div>
+        <div class="muted small" id="updateState">${appUpdateStateText()}</div></div>
+      ${S.appUpdate?.available
+        ? `<button class="btn primary" data-act="appUpdate">Auf ${esc(S.appUpdate.latest)} aktualisieren</button>`
+        : `<button class="btn" data-act="checkAppUpdate">Nach Updates suchen</button>`}
+    </div></div>
+    <p class="muted small" style="margin-top:14px">Java wird automatisch passend zur Minecraft-Version geladen.</p>
   </div>`;
 }
 
@@ -1264,6 +1280,36 @@ const actions = {
       S.accounts = acc; if (!closed) m.close(); toast('Microsoft-Konto hinzugefügt'); render();
     }).catch((e) => { if (!closed) { m.close(); fail(e); } });
   },
+
+  // ----- App-Updates -----
+
+  async checkAppUpdate(d, btn) {
+    await busy(btn, () => checkAppUpdate(true));
+    render();
+  },
+  appUpdate() {
+    const up = S.appUpdate;
+    if (!up || !up.available) return toast('Kein Update verfügbar');
+    const m = modal(`<h2>NNN Launcher ${esc(up.latest)}</h2>
+      <p class="muted">Du hast Version ${esc(up.current)}. Der Launcher lädt das Update, installiert es und startet danach neu. Deine Instanzen, Welten und Einstellungen bleiben erhalten.</p>
+      ${up.notes ? `<div class="card selectable" style="max-height:260px;overflow:auto;white-space:pre-wrap;font-size:13px">${esc(up.notes)}</div>` : ''}
+      ${progressHtml('app-update')}
+      <div class="actions"><button class="btn" data-close>Später</button><button class="btn primary" id="upOk">Aktualisieren & neu starten</button></div>`, { wide: true });
+    $('#upOk', m.el).onclick = async (e) => {
+      const btn = e.currentTarget;
+      btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>Lädt…';
+      S.progress['app-update'] = { stage: 'Update herunterladen', done: 0, total: 0 };
+      updateProgressEls('app-update');
+      try {
+        await call('app.installUpdate');
+        btn.innerHTML = 'Wird installiert – startet gleich neu…';
+      } catch (err) {
+        delete S.progress['app-update']; updateProgressEls('app-update');
+        btn.disabled = false; btn.textContent = 'Nochmal versuchen';
+        fail(err);
+      }
+    };
+  },
   async saveSettings(d, btn) {
     await busy(btn, async () => {
       try {
@@ -1282,6 +1328,28 @@ const actions = {
 };
 
 let msCodeHandler = null;
+
+async function checkAppUpdate(manual = false) {
+  try {
+    const before = S.appUpdate?.latest;
+    S.appUpdate = await call('app.checkUpdate');
+    S.appUpdateChecked = Date.now();
+    if (S.appUpdate.available && before !== S.appUpdate.latest) toast(`NNN Launcher ${S.appUpdate.latest} ist verfügbar – siehe Glocke`);
+    else if (manual && !S.appUpdate.available) toast('Du hast die neueste Version');
+  } catch (e) {
+    S.appUpdateError = e.message;
+    if (manual) fail(e);
+  }
+  renderNotifs();
+  const st = $('#updateState');
+  if (st) st.textContent = appUpdateStateText();
+}
+
+function appUpdateStateText() {
+  if (S.appUpdate?.available) return `Neue Version ${S.appUpdate.latest} verfügbar`;
+  if (S.appUpdateChecked) return `Aktuell · zuletzt geprüft ${new Date(S.appUpdateChecked).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}`;
+  return S.appUpdateError ? 'Update-Prüfung fehlgeschlagen' : '';
+}
 
 async function authAction(path, btn) {
   const username = $('#authUser').value.trim();
@@ -1351,7 +1419,7 @@ $('#notifPanel').addEventListener('click', (e) => {
   if (a) {
     const fn = actions[a.dataset.act];
     // Navigation oder Dialog: Fenster schließen
-    if (['open', 'push', 'installPack', 'sync'].includes(a.dataset.act)) toggleNotifs(false);
+    if (['open', 'push', 'installPack', 'sync', 'appUpdate'].includes(a.dataset.act)) toggleNotifs(false);
     if (fn) Promise.resolve(fn(a.dataset, a)).then(() => renderNotifs()).catch(fail);
   }
 });
@@ -1417,9 +1485,13 @@ bridge.on('deep-link', ({ code }) => actions.join({ code }));
     if (loggedIn()) api('/me').catch(() => {});
     const info = await call('app.ready');
     S.appVersion = info?.version;
+    S.appInstalled = !!info?.installed;
+    checkAppUpdate();
   } catch (e) {
     main.innerHTML = `<div class="empty">Start fehlgeschlagen: ${esc(e.message)}</div>`;
   }
+  // App-Updates alle 6 Stunden prüfen
+  setInterval(() => checkAppUpdate(), 6 * 3600 * 1000);
   // Alle 30 s nach Pack-Updates und Freundschaftsanfragen schauen
   setInterval(async () => {
     if (!loggedIn()) return;

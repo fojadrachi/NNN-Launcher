@@ -7,7 +7,7 @@ namespace PackLink.Core;
 
 static class Net
 {
-    public const string UserAgent = "NNNLauncher/1.0.0 (github.com/Fojadrachi/nnn-launcher)";
+    public static readonly string UserAgent = $"NNNLauncher/{AppUpdater.CurrentText} (github.com/fojadrachi/NNN-Launcher)";
 
     public static readonly HttpClient Client = Create();
 
