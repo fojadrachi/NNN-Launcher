@@ -1,0 +1,12 @@
+name = "nnn-launcher"
+main = "src/index.js"
+compatibility_date = "2026-09-01"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "nnn-launcher"
+database_id = "00986c07-cd9c-46bc-99c4-a3da47a525d4"
+
+# Geheimnisse (nicht hier eintragen!):
+#   npx wrangler secret put CF_API_KEY        -> CurseForge-API-Key
+# Lokal: Datei .dev.vars mit  CF_API_KEY=...

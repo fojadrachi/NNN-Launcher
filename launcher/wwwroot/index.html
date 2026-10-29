@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>NNN Launcher</title>
+  <link rel="stylesheet" href="app.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark">NNN</span>
+      <span class="brand-name">Launcher</span>
+    </div>
+    <nav id="nav">
+      <button data-view="library" class="active">Bibliothek</button>
+      <button data-view="discover">Mods finden</button>
+      <button data-view="friends">Freunde<span id="friendBadge" class="badge hidden"></span></button>
+      <button data-view="settings">Einstellungen</button>
+    </nav>
+    <div class="topbar-right">
+      <div id="serverStatus" class="server-status"></div>
+      <button id="accountBtn" class="account" title="Konto & Einstellungen">
+        <img id="accountHead" alt="">
+        <div class="account-text"><div id="accountName">Kein Konto</div><div id="accountType">Minecraft-Konto hinzufügen</div></div>
+      </button>
+    </div>
+  </header>
+  <main id="main"></main>
+  <div id="modalRoot"></div>
+  <div id="toasts"></div>
+  <script src="app.js"></script>
+</body>
+</html>
