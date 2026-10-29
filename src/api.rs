@@ -12,6 +12,15 @@ use std::sync::RwLock;
 
 pub const SERVER: &str = "https://launcher.nnn-server.de";
 
+/// Release-Builds sprechen nur mit SERVER. Entwickler-Builds dürfen per NNN_SERVER auf einen Testserver zeigen.
+fn server() -> String {
+    #[cfg(debug_assertions)]
+    if let Ok(s) = std::env::var("NNN_SERVER") {
+        return s;
+    }
+    SERVER.to_string()
+}
+
 static TOKEN: RwLock<Option<String>> = RwLock::new(None);
 
 pub fn set_token(t: Option<String>) { *TOKEN.write().unwrap() = t; }
@@ -26,7 +35,7 @@ impl std::fmt::Display for Unauthorized {
 impl std::error::Error for Unauthorized {}
 
 async fn request(method: reqwest::Method, path: &str, body: Option<Value>) -> Result<Value> {
-    let mut req = net::client().request(method, format!("{SERVER}{path}"));
+    let mut req = net::client().request(method, format!("{}{path}", server()));
     if let Some(t) = TOKEN.read().unwrap().clone() {
         req = req.bearer_auth(t);
     }
@@ -84,7 +93,7 @@ pub struct Owner { pub id: i64, pub username: String }
 
 #[derive(Deserialize, Clone, Debug, Default)]
 #[serde(rename_all = "camelCase", default)]
-pub struct Member { pub id: i64, pub username: String, pub role: String }
+pub struct Member { pub id: i64, pub username: String, pub role: String, pub installed_version: i64, pub installed_at: i64 }
 
 #[derive(Deserialize, Clone, Debug, Default)]
 #[serde(rename_all = "camelCase", default)]
@@ -100,6 +109,10 @@ pub struct Pack {
     pub created_at: i64,
     pub updated_at: i64,
     pub members: Vec<Member>,
+    /// Vom Ersteller erzwungene Mindestversion (0 = keine)
+    pub force_version: i64,
+    pub force_at: i64,
+    pub force_by: String,
 }
 
 #[derive(Deserialize)]
@@ -132,6 +145,14 @@ pub async fn push_version(id: &str, base: i64, manifest: &PackManifest, changelo
     let v = post(&format!("/packs/{id}/versions"), json!({ "baseVersion": base, "manifest": manifest, "changelog": changelog })).await?;
     Ok(v["version"].as_i64().unwrap_or(base + 1))
 }
+
+/// Meldet dem Server, welche Version hier installiert ist (für die Mitgliederliste)
+pub async fn report_installed(id: &str, version: i64) -> Result<()> {
+    post(&format!("/packs/{id}/installed"), json!({ "version": version })).await.map(|_| ())
+}
+
+/// Besitzer/Editor: neueste Version bei allen Mitgliedern automatisch installieren lassen
+pub async fn force_update(id: &str) -> Result<Pack> { Ok(serde_json::from_value::<PackOne>(post(&format!("/packs/{id}/force"), json!({})).await?)?.pack) }
 
 pub async fn delete_pack(id: &str) -> Result<()> { request(reqwest::Method::DELETE, &format!("/packs/{id}"), None).await.map(|_| ()) }
 pub async fn add_member(id: &str, user_id: i64) -> Result<()> { post(&format!("/packs/{id}/members"), json!({ "userId": user_id })).await.map(|_| ()) }

@@ -1,4 +1,5 @@
-//! Instanzen (je ein Spielordner) und Pack-Sync. Dateiformat identisch zur C#-Version.
+//! Instanzen (je ein Spielordner) und Pack-Sync. Dateiformat kompatibel zur C#-Version,
+//! erweitert um Texturepacks und Shader.
 
 use crate::{net, paths};
 use anyhow::{anyhow, bail, Result};
@@ -6,6 +7,62 @@ use base64::Engine;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::path::PathBuf;
+
+/// Art eines Inhalts: bestimmt Ordner, Dateiendung und Liste im Manifest
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum Kind {
+    #[default]
+    Mod,
+    ResourcePack,
+    Shader,
+}
+
+impl Kind {
+    pub const ALL: [Kind; 3] = [Kind::Mod, Kind::ResourcePack, Kind::Shader];
+
+    pub fn from_index(i: i32) -> Kind {
+        match i {
+            1 => Kind::ResourcePack,
+            2 => Kind::Shader,
+            _ => Kind::Mod,
+        }
+    }
+    pub fn from_str(s: &str) -> Kind {
+        match s {
+            "resourcepack" => Kind::ResourcePack,
+            "shader" => Kind::Shader,
+            _ => Kind::Mod,
+        }
+    }
+    pub fn key(self) -> &'static str {
+        match self {
+            Kind::Mod => "mod",
+            Kind::ResourcePack => "resourcepack",
+            Kind::Shader => "shader",
+        }
+    }
+    pub fn folder(self) -> &'static str {
+        match self {
+            Kind::Mod => "mods",
+            Kind::ResourcePack => "resourcepacks",
+            Kind::Shader => "shaderpacks",
+        }
+    }
+    pub fn label(self) -> &'static str {
+        match self {
+            Kind::Mod => "Mod",
+            Kind::ResourcePack => "Texturepack",
+            Kind::Shader => "Shader",
+        }
+    }
+    fn ext_ok(self, file: &str) -> bool {
+        let f = file.to_lowercase();
+        match self {
+            Kind::Mod => f.ends_with(".jar"),
+            _ => f.ends_with(".zip"),
+        }
+    }
+}
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
 #[serde(rename_all = "camelCase", default)]
@@ -46,12 +103,43 @@ pub struct PackManifest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub loader_version: Option<String>,
     pub mods: Vec<ModEntry>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub resourcepacks: Vec<ModEntry>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub shaders: Vec<ModEntry>,
     pub overrides: Vec<OverrideEntry>,
 }
 
 impl Default for PackManifest {
     fn default() -> Self {
-        Self { format_version: 1, name: String::new(), minecraft: String::new(), loader: "vanilla".into(), loader_version: None, mods: vec![], overrides: vec![] }
+        Self {
+            format_version: 1,
+            name: String::new(),
+            minecraft: String::new(),
+            loader: "vanilla".into(),
+            loader_version: None,
+            mods: vec![],
+            resourcepacks: vec![],
+            shaders: vec![],
+            overrides: vec![],
+        }
+    }
+}
+
+impl PackManifest {
+    pub fn list(&self, k: Kind) -> &Vec<ModEntry> {
+        match k {
+            Kind::Mod => &self.mods,
+            Kind::ResourcePack => &self.resourcepacks,
+            Kind::Shader => &self.shaders,
+        }
+    }
+    pub fn list_mut(&mut self, k: Kind) -> &mut Vec<ModEntry> {
+        match k {
+            Kind::Mod => &mut self.mods,
+            Kind::ResourcePack => &mut self.resourcepacks,
+            Kind::Shader => &mut self.shaders,
+        }
     }
 }
 
@@ -80,6 +168,11 @@ impl Instance {
     /// Lokale Änderungen, die noch nicht im geteilten Pack sind
     pub fn dirty(&self) -> bool { self.pack_id.is_some() && self.published_hash.as_deref() != Some(&manifest_hash(&self.manifest)) }
     pub fn can_edit(&self) -> bool { self.pack_id.is_none() || matches!(self.pack_role.as_deref(), Some("owner" | "editor")) }
+    /// Ist ein Shader-Loader (Iris, Oculus, OptiFine) installiert?
+    pub fn has_shader_loader(&self) -> bool {
+        let names = self.manifest.mods.iter().map(|m| format!("{} {}", m.name, m.file_name)).chain(local_files(self, Kind::Mod));
+        names.map(|n| n.to_lowercase()).any(|n| n.contains("iris") || n.contains("oculus") || n.contains("optifine"))
+    }
 }
 
 pub fn dir(id: &str) -> PathBuf { paths::instances().join(id) }
@@ -155,7 +248,9 @@ pub fn create(name: &str, mc: &str, loader: &str, loader_version: Option<String>
         created_at: now(),
         ..Default::default()
     };
-    std::fs::create_dir_all(game_dir(&id).join("mods"))?;
+    for k in Kind::ALL {
+        std::fs::create_dir_all(game_dir(&id).join(k.folder()))?;
+    }
     save(&inst)?;
     Ok(inst)
 }
@@ -172,73 +267,87 @@ fn same_project(a: &ModEntry, b: &ModEntry) -> bool {
     (a.source == b.source && !a.project_id.is_empty() && a.project_id == b.project_id) || a.file_name.eq_ignore_ascii_case(&b.file_name)
 }
 
-fn mod_path(id: &str, file_name: &str) -> Result<PathBuf> {
-    if file_name.contains(['/', '\\', ':']) || !file_name.to_lowercase().ends_with(".jar") {
+fn rel_path(k: Kind, file_name: &str) -> String { format!("{}/{}", k.folder(), file_name) }
+
+fn item_path(id: &str, k: Kind, file_name: &str) -> Result<PathBuf> {
+    if file_name.contains(['/', '\\', ':']) || !k.ext_ok(file_name) {
         bail!("Ungültiger Dateiname: {file_name}");
     }
-    paths::safe_join(&game_dir(id), &format!("mods/{file_name}"))
+    paths::safe_join(&game_dir(id), &rel_path(k, file_name))
 }
 
-pub async fn add_mod(id: &str, m: ModEntry) -> Result<Instance> {
+pub async fn add_item(id: &str, k: Kind, m: ModEntry) -> Result<Instance> {
     if !m.url.starts_with("https://") {
         bail!("{}: Der Autor erlaubt keine Downloads über andere Launcher.", m.name);
     }
-    let target = mod_path(id, &m.file_name)?;
+    let target = item_path(id, k, &m.file_name)?;
     net::download_all(vec![net::DlItem { url: m.url.clone(), path: target, sha1: m.sha1.clone(), size: m.size }], 1, |_, _| {}).await?;
     let mut i = get(id)?;
-    let old: Vec<ModEntry> = i.manifest.mods.iter().filter(|o| same_project(o, &m)).cloned().collect();
+    let old: Vec<ModEntry> = i.manifest.list(k).iter().filter(|o| same_project(o, &m)).cloned().collect();
     for o in old {
         if !o.file_name.eq_ignore_ascii_case(&m.file_name) {
-            let _ = std::fs::remove_file(mod_path(id, &o.file_name)?);
+            let _ = std::fs::remove_file(item_path(id, k, &o.file_name)?);
         }
-        i.manifest.mods.retain(|x| x != &o);
-        i.managed_files.retain(|f| f != &format!("mods/{}", o.file_name));
+        i.manifest.list_mut(k).retain(|x| x != &o);
+        let rel = rel_path(k, &o.file_name);
+        i.managed_files.retain(|f| f != &rel);
     }
-    i.managed_files.push(format!("mods/{}", m.file_name));
-    i.manifest.mods.push(m);
+    i.managed_files.push(rel_path(k, &m.file_name));
+    i.manifest.list_mut(k).push(m);
     save(&i)?;
     Ok(i)
 }
 
-pub fn remove_mod(id: &str, file_name: &str) -> Result<Instance> {
+pub fn remove_item(id: &str, k: Kind, file_name: &str) -> Result<Instance> {
     let mut i = get(id)?;
-    let _ = std::fs::remove_file(mod_path(id, file_name)?);
-    i.manifest.mods.retain(|m| !m.file_name.eq_ignore_ascii_case(file_name));
-    i.managed_files.retain(|f| !f.eq_ignore_ascii_case(&format!("mods/{file_name}")));
+    let _ = std::fs::remove_file(item_path(id, k, file_name)?);
+    i.manifest.list_mut(k).retain(|m| !m.file_name.eq_ignore_ascii_case(file_name));
+    let rel = rel_path(k, file_name);
+    i.managed_files.retain(|f| !f.eq_ignore_ascii_case(&rel));
     save(&i)?;
     Ok(i)
 }
 
-/// Selbst hineinkopierte Jar-Dateien (nicht im Manifest)
-pub fn local_mods(i: &Instance) -> Vec<String> {
-    let known: HashSet<String> = i.manifest.mods.iter().map(|m| m.file_name.to_lowercase()).collect();
-    let mut v: Vec<String> = std::fs::read_dir(i.game_dir().join("mods"))
+/// Selbst hineinkopierte Dateien (nicht im Manifest)
+pub fn local_files(i: &Instance, k: Kind) -> Vec<String> {
+    let known: HashSet<String> = i.manifest.list(k).iter().map(|m| m.file_name.to_lowercase()).collect();
+    let mut v: Vec<String> = std::fs::read_dir(i.game_dir().join(k.folder()))
         .into_iter()
         .flatten()
         .flatten()
         .filter_map(|e| e.file_name().into_string().ok())
-        .filter(|n| n.to_lowercase().ends_with(".jar") && !known.contains(&n.to_lowercase()))
+        .filter(|n| k.ext_ok(n) && !known.contains(&n.to_lowercase()))
         .collect();
     v.sort();
     v
 }
 
-/// Gleicher Hash wie die C#-Version, damit "unveröffentlicht" nach dem Umstieg stimmt
+/// Gleicher Hash wie die C#-Version, damit "unveröffentlicht" nach dem Umstieg stimmt.
+/// Texturepacks und Shader zählen nur mit, wenn welche da sind.
 pub fn manifest_hash(m: &PackManifest) -> String {
     use sha2::{Digest, Sha256};
-    let mut mods: Vec<String> = m.mods.iter().map(|x| format!("{}:{}", x.file_name, x.sha1.clone().unwrap_or_default())).collect();
-    mods.sort();
-    // Exakt wie System.Text.Json (Standard-Encoder) in der C#-Version: feste Feldreihenfolge,
-    // HTML-kritische Zeichen, '+' und Nicht-ASCII als \uXXXX
+    let list = |v: &Vec<ModEntry>| {
+        let mut l: Vec<String> = v.iter().map(|x| format!("{}:{}", x.file_name, x.sha1.clone().unwrap_or_default())).collect();
+        l.sort();
+        l.iter().map(|s| cs_json_str(s)).collect::<Vec<_>>().join(",")
+    };
+    // Exakt wie System.Text.Json (Standard-Encoder): feste Feldreihenfolge, HTML-kritische Zeichen,
+    // '+' und Nicht-ASCII als \uXXXX
     let lv = m.loader_version.as_deref().map(cs_json_str).unwrap_or_else(|| "null".into());
-    let mods_json = mods.iter().map(|s| cs_json_str(s)).collect::<Vec<_>>().join(",");
-    let s = format!(
-        "{{\"Minecraft\":{},\"Loader\":{},\"LoaderVersion\":{},\"Mods\":[{}]}}",
+    let mut s = format!(
+        "{{\"Minecraft\":{},\"Loader\":{},\"LoaderVersion\":{},\"Mods\":[{}]",
         cs_json_str(&m.minecraft),
         cs_json_str(&m.loader),
         lv,
-        mods_json
+        list(&m.mods)
     );
+    if !m.resourcepacks.is_empty() {
+        s.push_str(&format!(",\"ResourcePacks\":[{}]", list(&m.resourcepacks)));
+    }
+    if !m.shaders.is_empty() {
+        s.push_str(&format!(",\"Shaders\":[{}]", list(&m.shaders)));
+    }
+    s.push('}');
     hex::encode(Sha256::digest(s.as_bytes()))
 }
 
@@ -306,7 +415,7 @@ pub fn build_manifest(i: &Instance, include_configs: bool) -> Result<PackManifes
 }
 
 /// Wendet eine Pack-Version an: neue/geänderte Dateien laden, nicht mehr enthaltene verwaltete
-/// Dateien löschen. Eigene Mods des Nutzers bleiben unangetastet.
+/// Dateien löschen. Eigene Dateien des Nutzers bleiben unangetastet.
 pub async fn apply_manifest<F>(id: &str, manifest: PackManifest, version: i64, role: Option<String>, progress: F) -> Result<Instance>
 where
     F: Fn(usize, usize) + Send + Sync + 'static,
@@ -314,17 +423,22 @@ where
     let mut i = get(id)?;
     let game = game_dir(id);
     let mut wanted: HashSet<String> = HashSet::new();
+    let mut managed = Vec::new();
     let mut items = Vec::new();
-    for m in &manifest.mods {
-        if m.url.is_empty() {
-            bail!("{}: keine Download-URL", m.name);
+    for k in Kind::ALL {
+        for m in manifest.list(k) {
+            if m.url.is_empty() {
+                bail!("{}: keine Download-URL", m.name);
+            }
+            let rel = rel_path(k, &m.file_name);
+            items.push(net::DlItem { url: m.url.clone(), path: item_path(id, k, &m.file_name)?, sha1: m.sha1.clone(), size: m.size });
+            wanted.insert(rel.to_lowercase());
+            managed.push(rel);
         }
-        let rel = format!("mods/{}", m.file_name);
-        items.push(net::DlItem { url: m.url.clone(), path: mod_path(id, &m.file_name)?, sha1: m.sha1.clone(), size: m.size });
-        wanted.insert(rel.to_lowercase());
     }
     for o in &manifest.overrides {
         wanted.insert(o.path.to_lowercase());
+        managed.push(o.path.clone());
     }
     // Erst alles laden, dann löschen – so bleibt die Instanz bei Fehlern spielbar
     net::download_all(items, 8, progress).await?;
@@ -343,8 +457,8 @@ where
             }
         }
     }
-    i.manifest = PackManifest { name: i.name.clone(), overrides: vec![], ..manifest.clone() };
-    i.managed_files = manifest.mods.iter().map(|m| format!("mods/{}", m.file_name)).chain(manifest.overrides.iter().map(|o| o.path.clone())).collect();
+    i.manifest = PackManifest { name: i.name.clone(), overrides: vec![], ..manifest };
+    i.managed_files = managed;
     i.pack_version = version;
     if role.is_some() {
         i.pack_role = role;

@@ -9,6 +9,7 @@ export struct InstanceItem {
     loader: string,
     loader-version: string,
     mod-count: int,
+    pack-count: int,
     last-played: string,
     shared: bool,
     update: bool,
@@ -29,6 +30,7 @@ export struct ModItem {
     version: string,
     source: string,
     file: string,
+    kind: string,
     dependency: bool,
     icon: image,
     has-icon: bool,
@@ -70,6 +72,10 @@ export struct MemberItem {
     role: string,
     role-label: string,
     is-me: bool,
+    installed: string,
+    installed-ok: bool,
+    installed-known: bool,
+    installed-when: string,
     avatar: image,
     has-avatar: bool,
 }
@@ -127,11 +133,15 @@ export global AppState {
     // Instanz-Detail
     in property <InstanceItem> current;
     in property <[ModItem]> mods;
+    in property <[ModItem]> resourcepacks;
+    in property <[ModItem]> shaders;
+    in property <bool> has-shader-loader;
     in property <[string]> local-mods;
     in property <string> pack-name;
     in property <string> pack-info;
     in property <bool> pack-loaded;
     in property <[MemberItem]> members;
+    in property <string> members-info;
     in property <[VersionItem]> versions;
     in property <bool> is-owner;
 
@@ -144,6 +154,8 @@ export global AppState {
     in property <[string]> friend-names;
 
     // Mods finden
+    // 0 = Mods, 1 = Texturepacks, 2 = Shader
+    in-out property <int> kind: 0;
     in-out property <int> source: 0;
     in-out property <string> query;
     in property <[HitItem]> hits;
@@ -202,7 +214,7 @@ export global AppState {
     callback new-instance-dialog();
     callback versions-for(string, int);
     callback create-instance(string, string, int, string);
-    callback remove-mod(string, string);
+    callback remove-mod(string, string, string);
     callback open-folder(string);
     callback save-instance(string, string, string, string, int, string);
     callback delete-instance(string);
@@ -216,7 +228,9 @@ export global AppState {
     callback set-role(string, int, string);
     callback leave-pack(string);
     callback delete-pack(string);
+    callback force-update(string);
     callback search(bool);
+    callback discover-for(string, int);
     callback install-hit(int);
     callback open-url(string);
     callback login(string, string);

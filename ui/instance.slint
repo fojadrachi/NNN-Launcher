@@ -1,7 +1,7 @@
 import { ScrollView, ComboBox } from "std-widgets.slint";
 import { Theme, Icons } from "theme.slint";
 import { Button, IconButton, Icon, Tag, Monogram, Card, ProgressBar, Label, SectionTitle, Thumb, Field, Segmented } from "widgets.slint";
-import { AppState } from "state.slint";
+import { AppState, ModItem } from "state.slint";
 import { InstanceTags } from "library.slint";
 
 component Tabs inherits Rectangle {
@@ -14,7 +14,7 @@ component Tabs inherits Rectangle {
     row := HorizontalLayout {
         padding: 4px;
         spacing: 2px;
-        for t in [{ k: "mods", l: "Mods" }, { k: "pack", l: "Teilen & Freunde" }, { k: "settings", l: "Einstellungen" }]: Rectangle {
+        for t in [{ k: "mods", l: "Inhalte" }, { k: "pack", l: "Teilen & Freunde" }, { k: "settings", l: "Einstellungen" }]: Rectangle {
             border-radius: 17px;
             background: AppState.tab == t.k ? Theme.panel-3 : transparent;
             animate background { duration: 120ms; }
@@ -34,51 +34,113 @@ component Tabs inherits Rectangle {
     }
 }
 
+component ItemRow inherits Card {
+    in property <ModItem> m;
+    height: 64px;
+    HorizontalLayout {
+        padding-left: 12px;
+        padding-right: 12px;
+        spacing: 14px;
+        VerticalLayout { alignment: center; Thumb { img: m.icon; has-img: m.has-icon; fallback: m.name; size: 42px; } }
+        VerticalLayout {
+            alignment: center;
+            spacing: 2px;
+            HorizontalLayout {
+                spacing: 8px;
+                alignment: start;
+                Text { text: m.name; color: Theme.fg; font-weight: 600; font-size: 14px; overflow: elide; }
+                if m.dependency: Tag { text: "Abhängigkeit"; }
+            }
+            Text { text: m.version + " · " + m.source; color: Theme.mut; font-size: 12px; font-family: Theme.mono; overflow: elide; }
+        }
+        Rectangle { horizontal-stretch: 1; }
+        if AppState.current.can-edit: VerticalLayout {
+            alignment: center;
+            IconButton { icon: Icons.trash; tint: Theme.bad; clicked => { AppState.remove-mod(AppState.current.id, m.kind, m.file); } }
+        }
+    }
+}
+
+// Abschnitt mit Überschrift, Anzahl und "hinzufügen"
+component Section inherits HorizontalLayout {
+    in property <string> title;
+    in property <int> count;
+    in property <int> kind-index;
+    in property <bool> can-add: true;
+    spacing: 10px;
+    padding-top: 8px;
+    VerticalLayout {
+        alignment: center;
+        HorizontalLayout {
+            spacing: 10px;
+            Label { text: title; vertical-alignment: center; }
+            Tag { text: count; }
+        }
+    }
+    Rectangle { horizontal-stretch: 1; }
+    if can-add && AppState.current.can-edit: Button {
+        text: "Hinzufügen";
+        icon: Icons.plus;
+        small: true;
+        clicked => { AppState.discover-for(AppState.current.id, kind-index); }
+    }
+}
+
+component EmptyHint inherits Rectangle {
+    in property <string> text;
+    height: 52px;
+    border-radius: 12px;
+    border-width: 1px;
+    border-color: Theme.line;
+    Text { x: 16px; text: root.text; color: Theme.dim; font-size: 13px; vertical-alignment: center; width: parent.width - 32px; wrap: word-wrap; }
+}
+
 component ModsTab inherits VerticalLayout {
     alignment: start;
     spacing: 10px;
     HorizontalLayout {
         spacing: 10px;
-        Text { text: AppState.mods.length + " Mods im Pack"; color: Theme.mut; vertical-alignment: center; }
+        Text {
+            text: AppState.mods.length + " Mods · " + AppState.resourcepacks.length + " Texturepacks · " + AppState.shaders.length + " Shader";
+            color: Theme.mut;
+            vertical-alignment: center;
+        }
         Rectangle { horizontal-stretch: 1; }
         Button { text: "Ordner"; icon: Icons.folder; clicked => { AppState.open-folder(AppState.current.id); } }
-        if AppState.current.loader != "Vanilla" && AppState.current.can-edit: Button {
-            text: "Mods hinzufügen";
-            icon: Icons.plus;
-            kind: "primary";
-            clicked => { AppState.page = "discover"; AppState.search(false); }
+    }
+
+    Section { title: "MODS"; count: AppState.mods.length; kind-index: 0; can-add: AppState.current.loader != "Vanilla"; }
+    if AppState.current.loader == "Vanilla": EmptyHint { text: "Vanilla-Instanzen haben keine Mods. Wähle unter Einstellungen einen Mod-Loader."; }
+    if AppState.current.loader != "Vanilla" && AppState.mods.length == 0: EmptyHint { text: "Noch keine Mods."; }
+    for m in AppState.mods: ItemRow { m: m; }
+
+    Section { title: "TEXTUREPACKS"; count: AppState.resourcepacks.length; kind-index: 1; }
+    if AppState.resourcepacks.length == 0: EmptyHint { text: "Noch keine Texturepacks. Im Spiel unter Optionen → Ressourcenpakete aktivieren."; }
+    for m in AppState.resourcepacks: ItemRow { m: m; }
+
+    Section { title: "SHADER"; count: AppState.shaders.length; kind-index: 2; can-add: AppState.current.loader != "Vanilla"; }
+    if AppState.shaders.length > 0 && !AppState.has-shader-loader: Rectangle {
+        height: 52px;
+        border-radius: 12px;
+        background: #ff6b6b12;
+        border-width: 1px;
+        border-color: #ff6b6b44;
+        Text {
+            x: 16px;
+            width: parent.width - 32px;
+            text: "Für Shader fehlt noch Iris (Fabric/NeoForge) bzw. Oculus (Forge). Unter „Mods“ hinzufügen.";
+            color: Theme.fg;
+            font-size: 13px;
+            vertical-alignment: center;
+            wrap: word-wrap;
         }
     }
-    if AppState.current.loader == "Vanilla": Card {
-        height: 90px;
-        Text { text: "Vanilla-Instanzen haben keine Mods. Wähle unter Einstellungen einen Mod-Loader."; color: Theme.mut; }
+    if AppState.shaders.length == 0: EmptyHint {
+        text: AppState.current.loader == "Vanilla" ? "Shader brauchen einen Mod-Loader mit Iris oder Oculus." : "Noch keine Shader. Dafür brauchst du Iris (Fabric/NeoForge) oder Oculus (Forge).";
     }
-    for m in AppState.mods: Card {
-        height: 64px;
-        HorizontalLayout {
-            padding-left: 12px;
-            padding-right: 12px;
-            spacing: 14px;
-            VerticalLayout { alignment: center; Thumb { img: m.icon; has-img: m.has-icon; fallback: m.name; size: 42px; } }
-            VerticalLayout {
-                alignment: center;
-                spacing: 2px;
-                HorizontalLayout {
-                    spacing: 8px;
-                    alignment: start;
-                    Text { text: m.name; color: Theme.fg; font-weight: 600; font-size: 14px; overflow: elide; }
-                    if m.dependency: Tag { text: "Abhängigkeit"; }
-                }
-                Text { text: m.version + " · " + m.source; color: Theme.mut; font-size: 12px; font-family: Theme.mono; overflow: elide; }
-            }
-            Rectangle { horizontal-stretch: 1; }
-            if AppState.current.can-edit: VerticalLayout {
-                alignment: center;
-                IconButton { icon: Icons.trash; tint: Theme.bad; clicked => { AppState.remove-mod(AppState.current.id, m.file); } }
-            }
-        }
-    }
-    if AppState.local-mods.length > 0: SectionTitle { text: "EIGENE DATEIEN IM MODS-ORDNER"; }
+    for m in AppState.shaders: ItemRow { m: m; }
+
+    if AppState.local-mods.length > 0: SectionTitle { text: "EIGENE DATEIEN"; }
     if AppState.local-mods.length > 0: Text { text: "Selbst hineinkopiert – werden nicht mit dem Pack geteilt und beim Sync nicht angefasst."; color: Theme.mut; font-size: 12px; wrap: word-wrap; }
     for f in AppState.local-mods: Card {
         height: 48px;
@@ -136,6 +198,18 @@ component PackTab inherits VerticalLayout {
                     }
                     Rectangle { horizontal-stretch: 1; }
                     if AppState.current.can-edit: VerticalLayout { alignment: center; Button { text: "Link erstellen"; icon: Icons.link; clicked => { AppState.modal = "share"; } } }
+                    if AppState.current.can-edit: VerticalLayout {
+                        alignment: center;
+                        Button {
+                            text: "Update erzwingen";
+                            icon: Icons.download;
+                            clicked => {
+                                AppState.ask("Update bei allen erzwingen?",
+                                    "Alle Mitglieder laden die neueste Version automatisch, sobald ihr NNN Launcher läuft – ohne nachzufragen. Veröffentliche vorher deine Änderungen.",
+                                    "Erzwingen", "force-update", AppState.current.id);
+                            }
+                        }
+                    }
                     if AppState.current.can-edit: VerticalLayout { alignment: center; Button { text: "Update veröffentlichen"; icon: Icons.upload; kind: "primary"; clicked => { AppState.modal = "push"; } } }
                 }
             }
@@ -164,6 +238,7 @@ component PackTab inherits VerticalLayout {
             width: 330px;
             spacing: 12px;
             SectionTitle { text: "MITGLIEDER"; }
+            if AppState.members-info != "": Text { text: AppState.members-info; color: Theme.mut; font-size: 12px; }
             for m in AppState.members: Card {
                 height: 60px;
                 HorizontalLayout {
@@ -173,8 +248,17 @@ component PackTab inherits VerticalLayout {
                     VerticalLayout { alignment: center; Thumb { img: m.avatar; has-img: m.has-avatar; fallback: m.name; size: 36px; round: true; } }
                     VerticalLayout {
                         alignment: center;
+                        spacing: 3px;
                         Text { text: m.name + (m.is-me ? " (du)" : ""); color: Theme.fg; font-weight: 600; overflow: elide; }
-                        Text { text: m.role-label; color: Theme.mut; font-size: 12px; }
+                        HorizontalLayout {
+                            spacing: 6px;
+                            alignment: start;
+                            Tag {
+                                text: m.installed-known ? m.installed + (m.installed-ok ? " aktuell" : " veraltet") : "Version unbekannt";
+                                kind: !m.installed-known ? "" : m.installed-ok ? "good" : "warn";
+                            }
+                            Text { text: m.role-label; color: Theme.mut; font-size: 12px; vertical-alignment: center; overflow: elide; }
+                        }
                     }
                     Rectangle { horizontal-stretch: 1; }
                     if AppState.is-owner && m.role != "owner": VerticalLayout {

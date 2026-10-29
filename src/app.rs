@@ -1,6 +1,6 @@
 //! Steuerung: hält den Zustand, führt Aktionen im Hintergrund aus und spiegelt alles in die Oberfläche.
 
-use crate::instances::{self, Instance};
+use crate::instances::{self, Instance, Kind};
 use crate::settings::{self, Event, NotifStore, Outgoing, Settings};
 use crate::session::{self, User};
 use crate::{api, loaders, minecraft, mods, official, updater, AppState, AppWindow};
@@ -27,6 +27,7 @@ pub struct Data {
     hits_total: usize,
     hits_loading: bool,
     hits_error: String,
+    hits_kind: Kind,
     hit_busy: HashSet<usize>,
     search_seq: u64,
     mc_versions: Vec<String>,
@@ -48,6 +49,10 @@ pub struct Data {
     share: Option<(String, String)>,
     join_preview: String,
     join_ready: bool,
+    /// Bereits an den Server gemeldete Versionen (Pack-ID → Version)
+    reported: HashMap<String, i64>,
+    /// Zwangs-Updates, die in dieser Sitzung schon versucht wurden
+    forced_tried: HashSet<String>,
 }
 
 pub struct Ctrl {
@@ -263,8 +268,39 @@ impl Ctrl {
         for t in new_toasts {
             self.toast(t, "");
         }
+        // Installierte Versionen melden und vom Ersteller erzwungene Updates ausführen
+        let (reports, forced) = self.with(|d| {
+            let mut reports = Vec::new();
+            let mut forced = Vec::new();
+            for i in &d.instances {
+                let Some(p) = i.pack_id.as_ref().and_then(|pid| d.packs.iter().find(|x| &x.id == pid)) else { continue };
+                if d.reported.get(&p.id) != Some(&i.pack_version) && i.pack_version > 0 {
+                    reports.push((p.id.clone(), i.pack_version));
+                }
+                let key = format!("{}:{}", p.id, p.force_version);
+                if p.force_version > i.pack_version && !d.busy.contains_key(&i.id) && !d.forced_tried.contains(&key) {
+                    d.forced_tried.insert(key);
+                    forced.push((i.id.clone(), p.force_by.clone()));
+                }
+            }
+            (reports, forced)
+        });
+        for (pid, v) in reports {
+            self.report(pid, v);
+        }
+        for (id, by) in forced {
+            self.sync_with(id, Some(by));
+        }
         self.refresh();
         self.check_bell();
+    }
+
+    fn report(self: &C, pack_id: String, version: i64) {
+        self.spawn(move |c| async move {
+            if api::report_installed(&pack_id, version).await.is_ok() {
+                c.with(|d| d.reported.insert(pack_id, version));
+            }
+        });
     }
 
     fn check_bell(self: &C) {
@@ -398,9 +434,11 @@ impl Ctrl {
             }
             d.current = Some(id.to_string());
         });
-        for m in &inst.manifest.mods {
-            if let Some(u) = &m.icon_url {
-                self.want_image(u);
+        for k in Kind::ALL {
+            for m in inst.manifest.list(k) {
+                if let Some(u) = &m.icon_url {
+                    self.want_image(u);
+                }
             }
         }
         self.refresh();
@@ -439,7 +477,10 @@ impl Ctrl {
         });
     }
 
-    pub fn sync(self: &C, id: String) {
+    pub fn sync(self: &C, id: String) { self.sync_with(id, None) }
+
+    /// `forced_by`: Update wurde vom Ersteller erzwungen und läuft automatisch
+    pub fn sync_with(self: &C, id: String, forced_by: Option<String>) {
         let Some(inst) = self.inst(&id) else { return };
         let Some(pid) = inst.pack_id.clone() else { return };
         let role = self.with(|d| d.packs.iter().find(|p| p.id == pid).map(|p| p.role.clone()));
@@ -458,7 +499,23 @@ impl Ctrl {
             }
             .await;
             match res {
-                Ok((v, log)) => c.toast(format!("Auf Version {v} aktualisiert{}", if log.is_empty() { String::new() } else { format!(": {log}") }), ""),
+                Ok((v, log)) => {
+                    c.report(pid.clone(), v);
+                    match &forced_by {
+                        Some(by) => {
+                            let title = format!("„{}“ wurde automatisch auf Version {v} aktualisiert", inst.name);
+                            let text = if by.is_empty() { String::new() } else { format!(" (erzwungen von {by})") };
+                            c.with(|d| {
+                                d.notif.events.insert(0, Event { key: format!("forced:{pid}:{v}"), kind: "update".into(), title: format!("{title}{text}"), user: String::new(), time: instances::now() });
+                                if let Some(u) = &d.user {
+                                    settings::save_notifs(u.id, &d.notif);
+                                }
+                            });
+                            c.toast(format!("{title}{text}"), "");
+                        }
+                        None => c.toast(format!("Auf Version {v} aktualisiert{}", if log.is_empty() { String::new() } else { format!(": {log}") }), ""),
+                    }
+                }
                 Err(e) => c.fail(e),
             }
             c.set_busy(&id, None);
@@ -502,6 +559,7 @@ impl Ctrl {
             match res {
                 Ok(i) => {
                     c.toast(format!("„{}“ installiert", i.name), "");
+                    c.report(pack_id.clone(), i.pack_version);
                     let id = i.id.clone();
                     c.upsert(i);
                     if navigate {
@@ -519,16 +577,17 @@ impl Ctrl {
         });
     }
 
-    pub fn search(self: &C, source: i32, query: String, target: Option<String>, append: bool) {
+    pub fn search(self: &C, kind: Kind, source: i32, query: String, target: Option<String>, append: bool) {
         let seq = self.with(|d| {
             d.search_seq += 1;
             d.hits_loading = true;
             d.hits_error.clear();
-            if !append {
+            if !append || d.hits_kind != kind {
                 d.hits.clear();
                 d.hit_busy.clear();
                 d.hits_total = 0;
             }
+            d.hits_kind = kind;
             d.search_seq
         });
         self.refresh();
@@ -543,8 +602,16 @@ impl Ctrl {
                 return;
             }
             let inst = target.as_deref().and_then(|t| c.inst(t));
+            if kind == Kind::Mod && inst.as_ref().is_some_and(|i| i.manifest.loader == "vanilla") {
+                c.with(|d| {
+                    d.hits_loading = false;
+                    d.hits_error = "Diese Instanz ist Vanilla und hat keinen Mod-Loader. Texturepacks gehen trotzdem – oder wähle oben eine andere Instanz.".into();
+                });
+                c.refresh();
+                return;
+            }
             let offset = if append { c.with(|d| d.hits.len()) } else { 0 };
-            let res = mods::search(src, &query, inst.as_ref(), offset).await;
+            let res = mods::search(kind, src, &query, inst.as_ref(), offset).await;
             let stale = c.with(|d| d.search_seq != seq);
             if stale {
                 return;
@@ -572,27 +639,38 @@ impl Ctrl {
     }
 
     pub fn install_hit(self: &C, idx: usize, target: Option<String>) {
-        let Some(hit) = self.with(|d| d.hits.get(idx).cloned()) else { return };
+        let Some((hit, kind)) = self.with(|d| d.hits.get(idx).cloned().map(|h| (h, d.hits_kind))) else { return };
         let Some(tid) = target else { return };
         self.with(|d| d.hit_busy.insert(idx));
         self.refresh();
         self.spawn(move |c| async move {
-            let res: Result<(String, usize)> = async {
+            let res: Result<(String, usize, bool)> = async {
                 let inst = c.inst(&tid).ok_or_else(|| anyhow::anyhow!("Instanz nicht gefunden"))?;
-                let list = mods::resolve_with_deps(&hit.source, &hit.id, &hit.title, hit.icon.clone(), &inst).await?;
+                let list = mods::resolve_with_deps(kind, &hit.source, &hit.id, &hit.title, hit.icon.clone(), &inst).await?;
                 let n = list.len();
                 let main = list[0].name.clone();
+                let mut last = inst;
                 for m in list {
-                    let i = instances::add_mod(&tid, m).await?;
-                    c.upsert(i);
+                    // Abhängigkeiten sind immer Mods
+                    let k = if m.dependency { Kind::Mod } else { kind };
+                    last = instances::add_item(&tid, k, m).await?;
+                    c.upsert(last.clone());
                 }
-                Ok((main, n))
+                Ok((main, n, last.has_shader_loader()))
             }
             .await;
             c.with(|d| d.hit_busy.remove(&idx));
             match res {
-                Ok((name, n)) if n > 1 => c.toast(format!("{name} + {} Abhängigkeit(en) installiert", n - 1), ""),
-                Ok((name, _)) => c.toast(format!("{name} installiert"), ""),
+                Ok((name, n, _)) if n > 1 => c.toast(format!("{name} + {} Abhängigkeit(en) installiert", n - 1), ""),
+                Ok((name, _, has_loader)) => {
+                    c.toast(format!("{} „{name}“ installiert", kind.label()), "");
+                    if kind == Kind::Shader && !has_loader {
+                        c.toast("Für Shader brauchst du Iris (Fabric/NeoForge) oder Oculus (Forge) – unter „Mods“ suchen und installieren.", "warn");
+                    }
+                    if kind == Kind::ResourcePack {
+                        c.toast("Im Spiel unter Optionen → Ressourcenpakete aktivieren.", "");
+                    }
+                }
                 Err(e) => c.fail(e),
             }
             c.refresh();
@@ -661,6 +739,7 @@ impl Ctrl {
                 let manifest = instances::build_manifest(&inst, configs)?;
                 let pack = api::create_pack(&inst.name, &desc, &manifest).await?;
                 let i = instances::link_pack(&id, &pack.id, 1, "owner")?;
+                c.report(pack.id.clone(), 1);
                 c.upsert(i);
                 c.refresh_server().await;
                 Ok(())
@@ -696,6 +775,7 @@ impl Ctrl {
                 let manifest = instances::build_manifest(&inst, configs)?;
                 let v = api::push_version(&pid, inst.pack_version, &manifest, &changelog).await?;
                 let i = instances::link_pack(&id, &pid, v, inst.pack_role.as_deref().unwrap_or("owner"))?;
+                c.report(pid.clone(), v);
                 c.upsert(i);
                 c.refresh_server().await;
                 Ok(v)
@@ -812,6 +892,7 @@ impl Ctrl {
                 "role" => api::set_role(&pid, user_id, &role).await.map(|_| "Rolle geändert"),
                 "leave" => api::remove_member(&pid, me).await.map(|_| "Pack verlassen"),
                 "delete" => api::delete_pack(&pid).await.map(|_| "Pack gelöscht"),
+                "force" => api::force_update(&pid).await.map(|_| "Update erzwungen – alle Mitglieder laden die neueste Version automatisch, sobald ihr Launcher läuft"),
                 _ => return,
             };
             match res {
@@ -1025,6 +1106,7 @@ fn inst_item(d: &Data, i: &Instance) -> InstanceItem {
         loader: loaders::display(&i.manifest.loader).into(),
         loader_version: i.manifest.loader_version.clone().unwrap_or_default().into(),
         mod_count: i.manifest.mods.len() as i32,
+        pack_count: (i.manifest.resourcepacks.len() + i.manifest.shaders.len()) as i32,
         last_played: fmt_time(i.last_played).into(),
         shared: i.pack_id.is_some(),
         update: pack.map(|p| p.latest_version > i.pack_version).unwrap_or(false),
@@ -1197,33 +1279,48 @@ fn apply(c: &C, ui: &AppWindow, d: &Data) {
     // Detail
     if let Some(cur) = d.current.as_ref().and_then(|id| d.instances.iter().find(|i| &i.id == id)) {
         s.set_current(inst_item(d, cur));
-        let mut mods_sorted = cur.manifest.mods.clone();
-        mods_sorted.sort_by_key(|m| m.name.to_lowercase());
-        s.set_mods(model(
-            mods_sorted
-                .iter()
-                .map(|m| {
-                    let (icon, has_icon) = image_of(d, m.icon_url.as_deref());
-                    ModItem {
-                        name: m.name.clone().into(),
-                        version: m.version_name.clone().unwrap_or_else(|| m.file_name.clone()).into(),
-                        source: (if m.source == "curseforge" { "CurseForge" } else { "Modrinth" }).into(),
-                        file: m.file_name.clone().into(),
-                        dependency: m.dependency,
-                        icon,
-                        has_icon,
-                    }
-                })
-                .collect(),
-        ));
-        s.set_local_mods(strings(instances::local_mods(cur)));
+        let items = |k: Kind| {
+            let mut v = cur.manifest.list(k).clone();
+            v.sort_by_key(|m| m.name.to_lowercase());
+            model(
+                v.iter()
+                    .map(|m| {
+                        let (icon, has_icon) = image_of(d, m.icon_url.as_deref());
+                        ModItem {
+                            name: m.name.clone().into(),
+                            version: m.version_name.clone().unwrap_or_else(|| m.file_name.clone()).into(),
+                            source: (if m.source == "curseforge" { "CurseForge" } else { "Modrinth" }).into(),
+                            file: m.file_name.clone().into(),
+                            kind: k.key().into(),
+                            dependency: m.dependency,
+                            icon,
+                            has_icon,
+                        }
+                    })
+                    .collect(),
+            )
+        };
+        s.set_mods(items(Kind::Mod));
+        s.set_resourcepacks(items(Kind::ResourcePack));
+        s.set_shaders(items(Kind::Shader));
+        s.set_has_shader_loader(cur.has_shader_loader());
+        s.set_local_mods(strings(Kind::ALL.iter().flat_map(|k| {
+            instances::local_files(cur, *k).into_iter().map(move |f| format!("{}/{}", k.folder(), f))
+        })));
         let me = user.map(|u| u.id).unwrap_or(0);
         match &d.current_pack {
             Some(p) => {
                 s.set_pack_loaded(true);
                 s.set_pack_name(p.name.clone().into());
                 let role = match p.role.as_str() { "owner" => "Besitzer", "editor" => "Editor", _ => "Mitglied" };
-                s.set_pack_info(format!("Version {} · Besitzer {} · deine Rolle: {}", p.latest_version, p.owner.username, role).into());
+                let forced = if p.force_version > 0 && p.force_version >= p.latest_version {
+                    format!(" · Update auf Version {} erzwungen{}", p.force_version, if p.force_by.is_empty() { String::new() } else { format!(" von {}", p.force_by) })
+                } else {
+                    String::new()
+                };
+                s.set_pack_info(format!("Version {} · Besitzer {} · deine Rolle: {}{forced}", p.latest_version, p.owner.username, role).into());
+                let current_count = p.members.iter().filter(|m| m.installed_version >= p.latest_version).count();
+                s.set_members_info(format!("{current_count} von {} auf dem neuesten Stand", p.members.len()).into());
                 s.set_is_owner(p.role == "owner");
                 s.set_members(model(
                     p.members
@@ -1234,8 +1331,12 @@ fn apply(c: &C, ui: &AppWindow, d: &Data) {
                                 id: m.id as i32,
                                 name: m.username.clone().into(),
                                 role: m.role.clone().into(),
-                                role_label: (match m.role.as_str() { "owner" => "Besitzer", "editor" => "Editor – darf Updates veröffentlichen", _ => "Mitglied" }).into(),
+                                role_label: (match m.role.as_str() { "owner" => "Besitzer", "editor" => "Editor", _ => "Mitglied" }).into(),
                                 is_me: m.id == me,
+                                installed: (if m.installed_version > 0 { format!("v{}", m.installed_version) } else { "–".into() }).into(),
+                                installed_ok: m.installed_version >= p.latest_version,
+                                installed_known: m.installed_version > 0,
+                                installed_when: fmt_time(m.installed_at).into(),
                                 avatar,
                                 has_avatar,
                             }
@@ -1247,6 +1348,7 @@ fn apply(c: &C, ui: &AppWindow, d: &Data) {
                 s.set_pack_loaded(cur.pack_id.is_none());
                 s.set_pack_name(cur.name.clone().into());
                 s.set_pack_info("".into());
+                s.set_members_info("".into());
                 s.set_is_owner(cur.pack_role.as_deref() == Some("owner"));
                 s.set_members(model(vec![]));
             }
@@ -1272,14 +1374,17 @@ fn apply(c: &C, ui: &AppWindow, d: &Data) {
     s.set_loader_versions_loading(d.loader_loading);
 
     // Mods finden
-    let targets: Vec<&Instance> = d.instances.iter().filter(|i| i.manifest.loader != "vanilla").collect();
+    // Alle Instanzen – Texturepacks gehen auch bei Vanilla
+    let targets: Vec<&Instance> = d.instances.iter().collect();
     s.set_targets(strings(targets.iter().map(|i| format!("{} ({} {})", i.name, i.manifest.minecraft, loaders::display(&i.manifest.loader)))));
     s.set_target_ids(strings(targets.iter().map(|i| i.id.clone())));
     if s.get_target() as usize >= targets.len() {
         s.set_target(0);
     }
     let target = targets.get(s.get_target().max(0) as usize).copied();
-    let have: HashSet<String> = target.map(|t| t.manifest.mods.iter().map(|m| format!("{}:{}", m.source, m.project_id)).collect()).unwrap_or_default();
+    let have: HashSet<String> = target
+        .map(|t| t.manifest.list(d.hits_kind).iter().map(|m| format!("{}:{}", m.source, m.project_id)).collect())
+        .unwrap_or_default();
     s.set_hits(model(
         d.hits
             .iter()

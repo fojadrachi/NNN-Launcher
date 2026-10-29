@@ -54,7 +54,7 @@ component Hero inherits Rectangle {
                 alignment: start;
                 InstanceTags { inst: inst; }
                 Text {
-                    text: inst.mod-count + " Mods" + (inst.last-played != "" ? "  ·  zuletzt " + inst.last-played : "");
+                    text: inst.mod-count + " Mods" + (inst.pack-count > 0 ? " · " + inst.pack-count + " Packs" : "") + (inst.last-played != "" ? "  ·  zuletzt " + inst.last-played : "");
                     color: Theme.mut;
                     font-size: 13px;
                     vertical-alignment: center;
@@ -106,7 +106,7 @@ component InstanceCard inherits Card {
         spacing: 6px;
         Text { text: inst.name; font-size: 17px; font-weight: 700; color: Theme.fg; overflow: elide; }
         Text {
-            text: inst.mod-count + " Mods" + (inst.last-played != "" ? " · " + inst.last-played : "");
+            text: inst.mod-count + " Mods" + (inst.pack-count > 0 ? " · " + inst.pack-count + " Packs" : "") + (inst.last-played != "" ? " · " + inst.last-played : "");
             color: Theme.mut;
             font-size: 12px;
             overflow: elide;

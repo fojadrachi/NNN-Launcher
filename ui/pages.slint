@@ -22,7 +22,15 @@ export component DiscoverPage inherits ScrollView {
         padding-right: self.padding-left;
         spacing: 16px;
 
-        PageHead { a: "Mods"; b: "finden"; }
+        PageHead { a: AppState.kind == 1 ? "Texturepacks" : AppState.kind == 2 ? "Shader" : "Mods"; b: "finden"; }
+        HorizontalLayout {
+            alignment: start;
+            Segmented {
+                options: ["Mods", "Texturepacks", "Shader"];
+                current <=> AppState.kind;
+                changed => { AppState.search(false); }
+            }
+        }
         HorizontalLayout {
             spacing: 10px;
             Segmented {
@@ -34,7 +42,7 @@ export component DiscoverPage inherits ScrollView {
                 horizontal-stretch: 1;
                 pill: true;
                 icon: Icons.search;
-                placeholder: "Mods durchsuchen …";
+                placeholder: AppState.kind == 1 ? "Texturepacks durchsuchen …" : AppState.kind == 2 ? "Shader durchsuchen …" : "Mods durchsuchen …";
                 text <=> AppState.query;
                 edited => { search-timer.running = false; search-timer.running = true; }
                 accepted => { search-timer.running = false; AppState.search(false); }
@@ -55,7 +63,7 @@ export component DiscoverPage inherits ScrollView {
 
         if AppState.targets.length == 0: Card {
             height: 90px;
-            Text { text: "Leg zuerst eine Instanz mit Mod-Loader an (Fabric, Quilt, Forge oder NeoForge)."; color: Theme.mut; }
+            Text { text: "Leg zuerst eine Instanz an."; color: Theme.mut; }
         }
         if AppState.hits-error != "": Card {
             height: 90px;

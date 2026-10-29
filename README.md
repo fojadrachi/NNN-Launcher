@@ -5,7 +5,8 @@ Oberfläche mit [Slint](https://slint.dev). Schnell, klein (rund 20 MB) und ohne
 
 ## Funktionen
 
-- **Mods finden** auf Modrinth und CurseForge, benötigte Abhängigkeiten werden automatisch mitinstalliert
+- **Mods, Texturepacks und Shader finden** auf Modrinth und CurseForge – Abhängigkeiten von Mods werden automatisch
+  mitinstalliert, Texturepacks landen in `resourcepacks/`, Shader in `shaderpacks/`
 - **Loader:** Fabric, Quilt, Forge, NeoForge und Vanilla
 - **Spielstart über den offiziellen Minecraft Launcher** (wie bei CurseForge): Der NNN Launcher legt ein Profil
   „NNN: &lt;Name&gt;“ an und öffnet den Launcher von Mojang mit eigenem Arbeitsordner. Anmeldung und Spieldateien
@@ -14,6 +15,9 @@ Oberfläche mit [Slint](https://slint.dev). Schnell, klein (rund 20 MB) und ohne
 - **Modpacks teilen** per Einladungslink oder Code (`nnnlauncher://join/CODE`)
 - **Updates pushen:** Besitzer oder Editoren klicken „Update veröffentlichen“, alle Mitglieder sehen
   „Update verfügbar“ und laden nur die geänderten Dateien. Eigene Mods im `mods`-Ordner bleiben erhalten.
+- **Wer hat welche Version?** In der Mitgliederliste steht bei jedem die installierte Pack-Version (aktuell/veraltet)
+- **Update erzwingen:** Besitzer und Editoren können die neueste Version bei allen Mitgliedern automatisch installieren
+  lassen, sobald deren Launcher läuft
 - **Benachrichtigungen** für Anfragen, Pack-Updates, Einladungen und neue App-Versionen
 - **App-Updates** über GitHub-Releases mit Prüfsummen-Check, stille Installation und Neustart
 
