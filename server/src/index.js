@@ -562,10 +562,14 @@ async function curseforgeProxy(request, env, url) {
   if (request.method !== 'GET' && request.method !== 'POST') throw new HttpError(405, 'Methode nicht erlaubt');
   const path = url.pathname.slice(3); // "/v1/..."
   if (!/^\/v1\/(mods|games|categories|minecraft)(\/|$)/.test(path)) throw new HttpError(400, 'Nicht erlaubter CurseForge-Pfad');
+  // Beim Einfügen rutschen gern Leerzeichen, Zeilenumbrüche oder Anführungszeichen mit hinein
+  const key = String(env.CF_API_KEY).trim().replace(/^["']|["']$/g, '').trim();
   const res = await fetch(CF_BASE + path + url.search, {
     method: request.method,
-    headers: { 'x-api-key': env.CF_API_KEY, Accept: 'application/json', 'Content-Type': 'application/json' },
+    headers: { 'x-api-key': key, Accept: 'application/json', 'Content-Type': 'application/json' },
     body: request.method === 'POST' ? await request.text() : undefined,
   });
+  if (res.status === 401 || res.status === 403)
+    throw new HttpError(502, 'CurseForge lehnt den API-Key ab – bitte CF_API_KEY prüfen');
   return new Response(res.body, { status: res.status, headers: { 'Content-Type': 'application/json' } });
 }
