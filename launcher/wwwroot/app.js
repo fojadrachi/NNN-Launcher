@@ -383,12 +383,142 @@ async function refreshPacks(silent = true) {
 
 async function refreshFriends() {
   if (!loggedIn()) { S.friends = { friends: [], incoming: [], outgoing: [] }; return; }
-  try { S.friends = await api('/friends'); } catch {}
+  try {
+    S.friends = await api('/friends');
+    // Wer aus "Gesendet" jetzt Freund ist, hat angenommen (auch während der Launcher zu war)
+    const me = S.session.user?.id;
+    const key = 'nnn.outgoing.' + me;
+    const before = store.get(key, []);
+    const friendIds = new Set(S.friends.friends.map((f) => f.id));
+    for (const o of before) if (friendIds.has(o.id)) addEvent({ kind: 'friend-accepted', key: 'fa:' + o.id, title: `${o.username} hat deine Freundschaftsanfrage angenommen`, user: o.username });
+    store.set(key, S.friends.outgoing.map((o) => ({ id: o.id, username: o.username })));
+  } catch {}
 }
 
 async function refreshAll() {
   await Promise.all([refreshInstances(), refreshPacks(), refreshFriends()]);
   render();
+}
+
+// ================= Benachrichtigungen =================
+// Aktuelle Meldungen werden aus dem Zustand abgeleitet (Anfragen, Updates, Einladungen),
+// einmalige Ereignisse (z. B. "Anfrage angenommen") landen im Verlauf. Gelesen-Status lokal.
+
+const store = {
+  get(k, def) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : def; } catch { return def; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
+};
+const BELL = '<svg viewBox="0 0 24 24"><path d="M6 9a6 6 0 0 1 12 0c0 5 2 6.5 2 6.5H4S6 14 6 9"/><path d="M10 19a2 2 0 0 0 4 0"/></svg>';
+const userKey = () => S.session.user?.id || 'gast';
+const seenSet = () => new Set(store.get('nnn.seen.' + userKey(), []));
+const dismissedSet = () => new Set(store.get('nnn.dismissed.' + userKey(), []));
+
+function addEvent(ev) {
+  const k = 'nnn.events.' + userKey();
+  const list = store.get(k, []);
+  if (list.some((e) => e.key === ev.key)) return;
+  list.unshift({ ...ev, time: Math.floor(Date.now() / 1000) });
+  store.set(k, list.slice(0, 40));
+  toast(ev.title);
+}
+
+function buildNotifications() {
+  const out = [];
+  const me = S.session.user?.id;
+  for (const u of S.friends.incoming) out.push({
+    key: 'fr:' + u.id, kind: 'friend', time: u.since, user: u.username,
+    title: `${u.username} möchte mit dir befreundet sein`,
+    actions: [{ label: 'Annehmen', act: 'acceptFriend', data: { user: u.id }, primary: true }, { label: 'Ablehnen', act: 'removeFriend', data: { user: u.id } }],
+  });
+  for (const inst of S.instances) {
+    const p = packFor(inst);
+    if (p && p.latestVersion > inst.packVersion) out.push({
+      key: `up:${p.id}:${p.latestVersion}`, kind: 'update', time: p.updatedAt,
+      title: `Update für „${inst.name}“`, text: `Version ${p.latestVersion} ist verfügbar (du hast ${inst.packVersion}).`,
+      actions: [{ label: 'Aktualisieren', act: 'sync', data: { id: inst.id }, primary: true }, { label: 'Ansehen', act: 'open', data: { id: inst.id } }],
+    });
+    else if (p && inst.dirty && ['owner', 'editor'].includes(p.role)) out.push({
+      key: `dirty:${inst.id}:${inst.mods.length}:${inst.packVersion}`, kind: 'dirty', time: null,
+      title: `„${inst.name}“ hat unveröffentlichte Änderungen`, text: 'Deine Freunde haben diese Mods noch nicht.',
+      actions: [{ label: 'Veröffentlichen', act: 'push', data: { id: inst.id }, primary: true }],
+    });
+  }
+  for (const p of S.packs) {
+    if (p.owner.id === me || S.instances.some((i) => i.packId === p.id)) continue;
+    out.push({
+      key: 'inv:' + p.id, kind: 'invite', time: p.createdAt,
+      title: `Du bist in „${p.name}“`, text: `Modpack von ${p.owner.username} · Minecraft ${p.minecraft} · ${LOADER_NAMES[p.loader]}`,
+      actions: [{ label: 'Installieren', act: 'installPack', data: { pack: p.id }, primary: true }],
+    });
+  }
+  const dismissed = dismissedSet();
+  const events = store.get('nnn.events.' + userKey(), []).filter((e) => !dismissed.has(e.key)).map((e) => ({ ...e, history: true }));
+  return { active: out, events };
+}
+
+function notifIcon(n) {
+  if (n.user) return `<div class="notif-ico"><img src="https://mc-heads.net/avatar/${encodeURIComponent(n.user)}/64" alt=""></div>`;
+  const map = { update: ['acc', ICON.sync], dirty: ['acc', ICON.upload], invite: ['blue', ICON.box], 'friend-accepted': ['good', ICON.check] };
+  const [cls, ico] = map[n.kind] || ['', BELL];
+  return `<div class="notif-ico ${cls}">${ico}</div>`;
+}
+
+function notifHtml(n, seen) {
+  const actions = (n.actions || []).map((a) =>
+    `<button class="btn small ${a.primary ? 'primary' : ''}" data-act="${a.act}" ${Object.entries(a.data).map(([k, v]) => `data-${k}="${esc(v)}"`).join(' ')} data-notif="1">${esc(a.label)}</button>`).join('');
+  return `<div class="notif ${seen.has(n.key) ? '' : 'unseen'}">${notifIcon(n)}
+    <div class="notif-body"><div class="notif-title">${esc(n.title)}</div>
+      ${n.text ? `<div class="notif-text">${esc(n.text)}</div>` : ''}
+      ${n.time ? `<div class="notif-time">${esc(fmtDate(n.time))}</div>` : ''}
+      ${actions ? `<div class="notif-actions">${actions}</div>` : ''}</div>
+    ${n.history ? `<button class="notif-x" title="Entfernen" data-dismiss="${esc(n.key)}">${ICON.x}</button>` : ''}</div>`;
+}
+
+let lastUnseen = 0;
+function renderNotifs() {
+  const { active, events } = buildNotifications();
+  const seen = seenSet();
+  const unseen = [...active, ...events].filter((n) => !seen.has(n.key)).length;
+  const badge = $('#notifBadge');
+  badge.textContent = unseen > 9 ? '9+' : unseen;
+  badge.classList.toggle('hidden', !unseen);
+  const btn = $('#notifBtn');
+  if (unseen > lastUnseen) { btn.classList.remove('ring'); void btn.offsetWidth; btn.classList.add('ring'); }
+  lastUnseen = unseen;
+
+  const panel = $('#notifPanel');
+  if (panel.classList.contains('hidden')) return;
+  panel.innerHTML = `<div class="notif-head"><h3>Benachrichtigungen</h3>
+      ${unseen ? '<button data-notif-read>Alle gelesen</button>' : ''}
+      ${events.length ? '<button data-notif-clear>Verlauf leeren</button>' : ''}</div>
+    <div class="notif-list">
+      ${!loggedIn() ? `<div class="notif-empty">${BELL}<div>Melde dich unter „Freunde“ an, um Updates und Anfragen zu sehen.</div></div>` : ''}
+      ${loggedIn() && !active.length && !events.length ? `<div class="notif-empty">${BELL}<div>Alles erledigt – keine neuen Benachrichtigungen.</div></div>` : ''}
+      ${active.map((n) => notifHtml(n, seen)).join('')}
+      ${events.length ? `<div class="notif-sep">Verlauf</div>${events.map((n) => notifHtml(n, seen)).join('')}` : ''}
+    </div>`;
+}
+
+function markAllSeen() {
+  const { active, events } = buildNotifications();
+  const seen = seenSet();
+  for (const n of [...active, ...events]) seen.add(n.key);
+  store.set('nnn.seen.' + userKey(), [...seen].slice(-300));
+}
+
+function toggleNotifs(open) {
+  const panel = $('#notifPanel');
+  const willOpen = open ?? panel.classList.contains('hidden');
+  panel.classList.toggle('hidden', !willOpen);
+  $('#notifBtn').classList.toggle('open', willOpen);
+  if (willOpen) {
+    renderNotifs();
+    // Beim Öffnen frisch laden; als gelesen gilt alles erst beim Schließen
+    Promise.all([refreshPacks(), refreshFriends()]).then(() => renderNotifs());
+  } else {
+    markAllSeen();
+    renderNotifs();
+  }
 }
 
 // ================= Rendern =================
@@ -425,6 +555,7 @@ function renderSidebar() {
   const st = $('#serverStatus');
   if (!loggedIn()) st.innerHTML = `<span class="dot"></span>Nicht angemeldet`;
   else st.innerHTML = `<span class="dot ${S.serverOk === false ? 'off' : 'on'}"></span>${esc(S.session.user?.username)}${S.serverOk === false ? ' · offline' : ''}`;
+  renderNotifs();
 }
 
 function progressHtml(job) {
@@ -1198,6 +1329,36 @@ $('#nav').addEventListener('click', (e) => {
   if (b) go(b.dataset.view);
 });
 $('#accountBtn').onclick = () => go('settings');
+
+$('#notifBtn').addEventListener('click', (e) => { e.stopPropagation(); toggleNotifs(); });
+$('#notifPanel').addEventListener('click', (e) => {
+  e.stopPropagation();
+  const d = e.target.closest('[data-dismiss]');
+  if (d) {
+    const set = dismissedSet(); set.add(d.dataset.dismiss);
+    store.set('nnn.dismissed.' + userKey(), [...set].slice(-300));
+    return renderNotifs();
+  }
+  if (e.target.closest('[data-notif-read]')) { markAllSeen(); return renderNotifs(); }
+  if (e.target.closest('[data-notif-clear]')) {
+    const set = dismissedSet();
+    for (const ev of store.get('nnn.events.' + userKey(), [])) set.add(ev.key);
+    store.set('nnn.dismissed.' + userKey(), [...set].slice(-300));
+    return renderNotifs();
+  }
+  // Aktionsknöpfe (Annehmen, Aktualisieren, …) laufen über die normalen Aktionen
+  const a = e.target.closest('[data-act]');
+  if (a) {
+    const fn = actions[a.dataset.act];
+    // Navigation oder Dialog: Fenster schließen
+    if (['open', 'push', 'installPack', 'sync'].includes(a.dataset.act)) toggleNotifs(false);
+    if (fn) Promise.resolve(fn(a.dataset, a)).then(() => renderNotifs()).catch(fail);
+  }
+});
+document.addEventListener('click', (e) => {
+  if (!$('#notifPanel').classList.contains('hidden') && !e.target.closest('.notif-wrap') && !e.target.closest('.modal-back')) toggleNotifs(false);
+});
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('#notifPanel').classList.contains('hidden')) toggleNotifs(false); });
 document.addEventListener('change', (e) => {
   // Kontenbereich sofort ein-/ausblenden, wenn der Startmodus wechselt
   if (e.target.id === 'sMode') $('#directOnly').classList.toggle('hidden', e.target.value !== 'direct');
@@ -1259,7 +1420,7 @@ bridge.on('deep-link', ({ code }) => actions.join({ code }));
   } catch (e) {
     main.innerHTML = `<div class="empty">Start fehlgeschlagen: ${esc(e.message)}</div>`;
   }
-  // Alle 60 s nach Pack-Updates und Freundschaftsanfragen schauen
+  // Alle 30 s nach Pack-Updates und Freundschaftsanfragen schauen
   setInterval(async () => {
     if (!loggedIn()) return;
     const before = S.friends.incoming.length;
@@ -1267,5 +1428,5 @@ bridge.on('deep-link', ({ code }) => actions.join({ code }));
     if (S.friends.incoming.length > before) toast('Neue Freundschaftsanfrage');
     if (S.view === 'library' || (S.view === 'instance' && S.tab !== 'settings' && S.tab !== 'log')) render();
     else renderSidebar();
-  }, 60000);
+  }, 30000);
 })();

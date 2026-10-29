@@ -20,6 +20,13 @@
     </nav>
     <div class="topbar-right">
       <div id="serverStatus" class="server-status"></div>
+      <div class="notif-wrap">
+        <button id="notifBtn" class="icon-btn" title="Benachrichtigungen" aria-label="Benachrichtigungen">
+          <svg viewBox="0 0 24 24"><path d="M6 9a6 6 0 0 1 12 0c0 5 2 6.5 2 6.5H4S6 14 6 9"/><path d="M10 19a2 2 0 0 0 4 0"/></svg>
+          <span id="notifBadge" class="badge hidden"></span>
+        </button>
+        <div id="notifPanel" class="notif-panel hidden"></div>
+      </div>
       <button id="accountBtn" class="account" title="Konto & Einstellungen">
         <img id="accountHead" alt="">
         <div class="account-text"><div id="accountName">Kein Konto</div><div id="accountType">Minecraft-Konto hinzufügen</div></div>
