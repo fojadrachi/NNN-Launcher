@@ -132,6 +132,54 @@ pub fn run() -> i32 {
     }
 }
 
+/// Entwickler-Test gegen einen lokalen Server: eigene Datei hochladen, zweites Konto lädt sie ohne P2P-Anbieter
+#[cfg(debug_assertions)]
+pub fn r2_test() -> i32 {
+    use crate::{api, p2p};
+    let rt = tokio::runtime::Runtime::new().expect("Tokio");
+    let res: anyhow::Result<()> = rt.block_on(async {
+        let account = |u: &'static str| async move {
+            match api::login(u, "admintest1432").await {
+                Ok(r) => Ok(r),
+                Err(_) => api::register(u, "admintest1432").await,
+            }
+        };
+        api::set_token(Some(account("r2ersteller").await?.token));
+        let inst = instances::create("R2 Ersteller", "1.20.1", "fabric", Some("0.20.1".into()))?;
+        let path = inst.game_dir().join("mods").join("eigener-r2-mod-1.0.jar");
+        let data: Vec<u8> = (0..3_000_000u32).map(|i| (i.wrapping_mul(2654435761) >> 24) as u8).collect();
+        std::fs::create_dir_all(path.parent().unwrap())?;
+        std::fs::write(&path, &data)?;
+        let sha1 = net::sha1_bytes(&data);
+        let pack = api::create_pack(&inst.name, "", &instances::build_manifest(&inst, false)?).await?;
+        println!("Erster Upload überträgt: {}", api::upload_file(&pack.id, &sha1, &path).await?);
+        println!("Zweiter Upload überträgt: {}", api::upload_file(&pack.id, &sha1, &path).await?);
+        let bad = api::upload_file(&pack.id, &"0".repeat(40), &path).await;
+        println!("Falsche Prüfsumme abgelehnt: {}", bad.is_err());
+        let share = api::create_share(&pack.id, 0, 0).await?;
+
+        api::set_token(Some(account("r2fremder").await?.token));
+        println!("Fremder bekommt die Datei: {}", api::download_file(&pack.id, &sha1).await?.is_some());
+        api::set_token(Some(account("r2freund").await?.token));
+        api::join(&share.code).await?;
+        let dir = paths::cache().join("r2test");
+        let item = net::DlItem { url: p2p::url(&pack.id, &sha1), path: dir.join("geladen.jar"), sha1: Some(sha1.clone()), size: data.len() as u64 };
+        net::download_one(&item).await?;
+        println!("Freund lädt ohne Anbieter, Prüfsumme korrekt: {}", net::sha1_file(&item.path)? == sha1);
+        std::fs::remove_dir_all(&dir)?;
+        instances::delete(&inst.id)?;
+        api::set_token(Some(account("r2ersteller").await?.token));
+        api::delete_pack(&pack.id).await?;
+        api::set_token(Some(account("r2freund").await?.token));
+        println!("Nach dem Löschen weg: {}", api::download_file(&pack.id, &sha1).await?.is_none());
+        Ok(())
+    });
+    match res {
+        Ok(()) => { println!("OK"); 0 }
+        Err(e) => { println!("FEHLER {e:#}"); 1 }
+    }
+}
+
 /// Entwickler-Test: derselbe Ablauf wie „Spielen“ über den offiziellen Launcher, nur ohne ihn zu öffnen
 #[cfg(debug_assertions)]
 pub fn play_test() -> i32 {

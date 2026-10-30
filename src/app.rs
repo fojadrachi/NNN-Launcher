@@ -1095,6 +1095,29 @@ impl Ctrl {
         }
     }
 
+    /// Eigene Dateien auf den Server legen, damit Freunde sie auch laden können, wenn niemand online ist.
+    /// Schlägt das fehl, bleibt P2P als Weg bestehen.
+    async fn upload_local(self: &C, inst: &Instance, pack_id: &str) {
+        let files: Vec<(Kind, instances::ModEntry)> = Kind::ALL
+            .iter()
+            .flat_map(|k| inst.manifest.list(*k).iter().map(move |m| (*k, m.clone())))
+            .filter(|(_, m)| m.url.starts_with(p2p::SCHEME) && m.sha1.is_some())
+            .collect();
+        let total = files.len();
+        let mut failed = 0;
+        for (n, (k, m)) in files.iter().enumerate() {
+            self.set_busy(&inst.id, Some((&format!("Eigene Dateien hochladen {}/{total}", n + 1), (n as f32) / (total as f32))));
+            let Some(path) = instances::existing_path(&inst.id, *k, &m.file_name) else { continue };
+            if api::upload_file(pack_id, m.sha1.as_deref().unwrap_or_default(), &path).await.is_err() {
+                failed += 1;
+            }
+        }
+        self.set_busy(&inst.id, None);
+        if failed > 0 {
+            self.toast(format!("{failed} eigene Datei(en) liegen nicht auf dem Server, sie gehen nur per P2P"), "warn");
+        }
+    }
+
     pub fn publish(self: &C, id: String, name: String, desc: String, configs: bool, local: bool) {
         self.with(|d| d.modal_busy = true);
         self.refresh();
@@ -1114,6 +1137,7 @@ impl Ctrl {
                 if local {
                     let (with_local, n) = c.share_local(&id, &pack.id).await?;
                     if n > 0 {
+                        c.upload_local(&with_local, &pack.id).await;
                         let m = instances::build_manifest(&with_local, configs)?;
                         version = api::push_version(&pack.id, 1, &m, &format!("{n} eigene Datei(en) per P2P")).await?;
                         i = instances::link_pack(&id, &pack.id, version, "owner")?;
@@ -1155,6 +1179,9 @@ impl Ctrl {
                 let pid = inst.pack_id.clone().ok_or_else(|| anyhow::anyhow!("Instanz ist nicht geteilt"))?;
                 if local {
                     inst = c.share_local(&id, &pid).await?.0;
+                }
+                if local {
+                    c.upload_local(&inst, &pid).await;
                 }
                 let manifest = instances::build_manifest(&inst, configs)?;
                 let v = api::push_version(&pid, inst.pack_version, &manifest, &changelog).await?;

@@ -8,6 +8,7 @@
 
 use crate::{api, instances, net, paths};
 use anyhow::{anyhow, bail, Context, Result};
+use futures::StreamExt;
 use iroh::endpoint::{presets, Connection};
 use iroh::protocol::{AcceptError, ProtocolHandler, Router};
 use iroh::{Endpoint, EndpointId, SecretKey};
@@ -159,6 +160,10 @@ impl ProtocolHandler for Provider {
 /// Lädt eine P2P-Datei von einem Freund, der sie hat und online ist
 pub async fn fetch(item: &net::DlItem) -> Result<()> {
     let (pack, sha1) = parse(&item.url).ok_or_else(|| anyhow!("Ungültige P2P-Adresse"))?;
+    // Liegt die Datei auf dem Server, muss niemand online sein
+    if from_server(&pack, &sha1, item).await.unwrap_or(false) {
+        return Ok(());
+    }
     let router = start().await?;
     let peers = api::p2p_peers(&pack, &sha1).await?;
     let name = item.path.file_name().unwrap_or_default().to_string_lossy().to_string();
@@ -174,6 +179,30 @@ pub async fn fetch(item: &net::DlItem) -> Result<()> {
         }
     }
     Err(last.unwrap())
+}
+
+async fn from_server(pack: &str, sha1: &str, item: &net::DlItem) -> Result<bool> {
+    let Some(res) = api::download_file(pack, sha1).await? else { return Ok(false) };
+    if let Some(dir) = item.path.parent() {
+        tokio::fs::create_dir_all(dir).await?;
+    }
+    let tmp = net::part_path(&item.path);
+    let mut file = tokio::fs::File::create(&tmp).await?;
+    let mut hasher = <sha1::Sha1 as sha1::Digest>::new();
+    let mut body = res.bytes_stream();
+    while let Some(chunk) = body.next().await {
+        let chunk = chunk?;
+        sha1::Digest::update(&mut hasher, &chunk);
+        file.write_all(&chunk).await?;
+    }
+    file.flush().await?;
+    drop(file);
+    if hex::encode(sha1::Digest::finalize(hasher)) != sha1 {
+        let _ = tokio::fs::remove_file(&tmp).await;
+        bail!("Prüfsumme falsch");
+    }
+    tokio::fs::rename(&tmp, &item.path).await?;
+    Ok(true)
 }
 
 async fn fetch_from(endpoint: &Endpoint, node: &str, pack: &str, sha1: &str, item: &net::DlItem) -> Result<()> {

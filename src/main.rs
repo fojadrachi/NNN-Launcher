@@ -56,6 +56,12 @@ fn main() -> Result<(), slint::PlatformError> {
         paths::ensure();
         std::process::exit(selftest::sync_test());
     }
+    // Entwickler-Test: `--r2test` legt eine eigene Datei auf den Testserver und holt sie als Freund wieder ab
+    #[cfg(debug_assertions)]
+    if std::env::args().nth(1).as_deref() == Some("--r2test") {
+        paths::ensure();
+        std::process::exit(selftest::r2_test());
+    }
     // Entwickler-Test: `--playtest` bereitet den offiziellen Start jeder Instanz vor, ohne ihn zu öffnen
     #[cfg(debug_assertions)]
     if std::env::args().nth(1).as_deref() == Some("--playtest") {

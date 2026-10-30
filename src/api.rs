@@ -215,6 +215,40 @@ struct SharePreview { pack: SharePack }
 pub async fn share_preview(code: &str) -> Result<SharePack> { Ok(get::<SharePreview>(&format!("/share/{code}")).await?.pack) }
 pub async fn join(code: &str) -> Result<Pack> { Ok(serde_json::from_value::<PackOne>(post(&format!("/share/{code}/join"), json!({})).await?)?.pack) }
 
+// ---------- Eigene Dateien auf dem Server ----------
+
+fn file_url(pack_id: &str, sha1: &str) -> String { format!("{}/packs/{pack_id}/files/{sha1}", server()) }
+
+fn with_token(req: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
+    match token() {
+        Some(t) => req.bearer_auth(t),
+        None => req,
+    }
+}
+
+/// Lädt eine Datei hoch, falls der Server sie noch nicht hat. Gibt zurück, ob etwas übertragen wurde.
+pub async fn upload_file(pack_id: &str, sha1: &str, path: &std::path::Path) -> Result<bool> {
+    let url = file_url(pack_id, sha1);
+    let head = with_token(net::client().head(&url)).send().await.map_err(|_| anyhow!("NNN-Server nicht erreichbar"))?;
+    if head.status().is_success() {
+        return Ok(false);
+    }
+    let data = tokio::fs::read(path).await?;
+    let res = with_token(net::client().put(&url)).header("Content-Type", "application/octet-stream").body(data).send().await.map_err(|_| anyhow!("NNN-Server nicht erreichbar"))?;
+    let status = res.status();
+    if !status.is_success() {
+        let v: Value = res.json().await.unwrap_or(Value::Null);
+        return Err(anyhow!(v["error"].as_str().map(String::from).unwrap_or_else(|| format!("Serverfehler ({})", status.as_u16()))));
+    }
+    Ok(true)
+}
+
+/// Download vom Server; None, wenn die Datei dort nicht liegt
+pub async fn download_file(pack_id: &str, sha1: &str) -> Result<Option<reqwest::Response>> {
+    let res = with_token(net::client().get(file_url(pack_id, sha1))).send().await.map_err(|_| anyhow!("NNN-Server nicht erreichbar"))?;
+    Ok(res.status().is_success().then_some(res))
+}
+
 // ---------- P2P-Vermittlung ----------
 
 /// Meldet die eigene iroh-ID und welche P2P-Dateien dieser Launcher pro Pack anbietet
