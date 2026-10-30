@@ -86,6 +86,12 @@ impl Ctrl {
         let (accounts, selected) = session::accounts();
         d.ms_accounts = accounts.into_iter().map(|a| (a.id, a.name)).collect();
         d.ms_selected = selected;
+        // Screenshot-Rundgang: Konto anzeigen, ohne die echte Anmeldung zu lesen
+        #[cfg(debug_assertions)]
+        if let Ok(name) = std::env::var("NNN_SHOT_MS") {
+            d.ms_accounts = vec![("test".into(), name)];
+            d.ms_selected = Some("test".into());
+        }
         if let Some((token, user)) = session::load() {
             api::set_token(Some(token));
             d.notif = settings::load_notifs(user.id);

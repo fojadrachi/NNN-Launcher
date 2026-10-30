@@ -192,7 +192,7 @@ export component AppWindow inherits Window {
                                     if AppState.my-badge-owner: VerticalLayout { alignment: center; UserBadge { kind: "owner"; } }
                                     if !AppState.my-badge-owner && AppState.my-badge-beta: VerticalLayout { alignment: center; UserBadge { kind: "beta"; } }
                                 }
-                                Text { text: !AppState.set-direct ? "Minecraft über Mojang" : AppState.ms-active != "" ? "Minecraft: " + AppState.ms-active : "Minecraft: nicht angemeldet"; color: Theme.mut; font-size: 11px; }
+                                Text { text: AppState.ms-active != "" ? "Minecraft: " + AppState.ms-active : AppState.set-direct ? "Minecraft: nicht angemeldet" : "Minecraft über Mojang"; color: Theme.mut; font-size: 11px; }
                             }
                         }
                         a-ta := TouchArea { mouse-cursor: pointer; clicked => { AppState.page = AppState.logged-in ? "settings" : "friends"; } }

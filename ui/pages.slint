@@ -364,7 +364,7 @@ export component SettingsPage inherits ScrollView {
         PageHead { a: ""; b: "Einstellungen"; }
 
         SectionTitle { text: "MINECRAFT-KONTO"; }
-        Text {
+        if AppState.ms-accounts.length == 0: Text {
             text: "Nötig, wenn der NNN Launcher das Spiel selbst startet. Die Anmeldung läuft über Microsoft, der Launcher speichert dein Passwort nicht.";
             color: Theme.mut;
             font-size: 13px;
@@ -377,13 +377,20 @@ export component SettingsPage inherits ScrollView {
                 padding-right: 14px;
                 spacing: 12px;
                 VerticalLayout { alignment: center; Thumb { img: a.avatar; has-img: a.has-avatar; fallback: a.name; size: 36px; round: true; } }
-                VerticalLayout { alignment: center; horizontal-stretch: 1; Text { text: a.name; color: Theme.fg; font-size: 14px; font-weight: 600; } }
+                VerticalLayout {
+                    alignment: center;
+                    horizontal-stretch: 1;
+                    spacing: 2px;
+                    Text { text: a.name; color: Theme.fg; font-size: 15px; font-weight: 600; }
+                    Text { text: "Minecraft: Java Edition"; color: Theme.mut; font-size: 12px; }
+                }
                 if a.active: VerticalLayout { alignment: center; Tag { text: "Aktiv"; kind: "good"; } }
                 if !a.active: VerticalLayout { alignment: center; Button { text: "Verwenden"; clicked => { AppState.ms-select(a.id); } } }
                 VerticalLayout { alignment: center; Button { text: "Entfernen"; clicked => { AppState.ms-remove(a.id); } } }
             }
         }
-        HorizontalLayout { alignment: start; Button { text: AppState.ms-accounts.length > 0 ? "Weiteres Konto anmelden" : "Mit Microsoft anmelden"; kind: "primary"; clicked => { AppState.modal = "ms-login"; AppState.ms-login(); } } }
+        if AppState.ms-accounts.length == 0: HorizontalLayout { alignment: start; Button { text: "Mit Microsoft anmelden"; kind: "primary"; clicked => { AppState.modal = "ms-login"; AppState.ms-login(); } } }
+        if AppState.ms-accounts.length > 0: HorizontalLayout { alignment: start; Button { text: "Weiteres Konto anmelden"; clicked => { AppState.modal = "ms-login"; AppState.ms-login(); } } }
 
         SectionTitle { text: "SPIELSTART"; }
         Check { text: "Spiel direkt aus dem NNN Launcher starten"; checked <=> AppState.set-direct; }
