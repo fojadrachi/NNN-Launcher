@@ -81,6 +81,14 @@ fn needs_download(i: &DlItem) -> bool {
     }
 }
 
+/// Temporäre Datei beim Download. Der ganze Name bleibt erhalten, sonst teilen sich
+/// parallele Downloads wie java.exe und java.dll dieselbe Datei.
+pub fn part_path(path: &Path) -> PathBuf {
+    let mut p = path.as_os_str().to_owned();
+    p.push(".part");
+    PathBuf::from(p)
+}
+
 pub async fn download_one(item: &DlItem) -> Result<()> {
     // Dateien, die Freunde direkt untereinander tauschen
     if item.url.starts_with(crate::p2p::SCHEME) {
@@ -89,7 +97,7 @@ pub async fn download_one(item: &DlItem) -> Result<()> {
     if let Some(dir) = item.path.parent() {
         tokio::fs::create_dir_all(dir).await?;
     }
-    let tmp = item.path.with_extension("part");
+    let tmp = part_path(&item.path);
     let mut last = None;
     for attempt in 0..3u64 {
         match try_download(item, &tmp).await {

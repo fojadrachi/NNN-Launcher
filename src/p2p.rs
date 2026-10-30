@@ -198,7 +198,7 @@ async fn fetch_from(endpoint: &Endpoint, node: &str, pack: &str, sha1: &str, ite
     if let Some(dir) = item.path.parent() {
         tokio::fs::create_dir_all(dir).await?;
     }
-    let tmp = item.path.with_extension("part");
+    let tmp = crate::net::part_path(&item.path);
     let mut file = tokio::fs::File::create(&tmp).await?;
     let mut hasher = <sha1::Sha1 as sha1::Digest>::new();
     let mut buf = vec![0u8; 256 * 1024];
