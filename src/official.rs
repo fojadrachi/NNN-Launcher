@@ -97,6 +97,18 @@ fn signed_by_mojang(file: &std::path::Path) -> bool {
         .unwrap_or(false)
 }
 
+/// Java-Argumente für beide Startarten
+pub fn java_args(memory_mb: u32, extra: &str) -> String {
+    let mut args = format!(
+        "-Xmx{memory_mb}M -Xms512M -XX:+UseG1GC -XX:+UnlockExperimentalVMOptions -XX:G1NewSizePercent=20 -XX:G1ReservePercent=20 -XX:MaxGCPauseMillis=50 -XX:G1HeapRegionSize=32M"
+    );
+    if !extra.trim().is_empty() {
+        args.push(' ');
+        args.push_str(extra.trim());
+    }
+    args
+}
+
 fn write_profile(id: &str, name: &str, version_id: &str, memory_mb: u32, extra: &str) -> Result<()> {
     let file = paths::game().join("launcher_profiles.json");
     let mut root: Value = std::fs::read(&file).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_else(|| json!({}));
@@ -129,13 +141,7 @@ fn write_profile(id: &str, name: &str, version_id: &str, memory_mb: u32, extra: 
     let key = format!("nnn-{id}");
     let now = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
     let created = profiles.get(&key).and_then(|p| p["created"].as_str()).unwrap_or(&now).to_string();
-    let mut args = format!(
-        "-Xmx{memory_mb}M -Xms512M -XX:+UseG1GC -XX:+UnlockExperimentalVMOptions -XX:G1NewSizePercent=20 -XX:G1ReservePercent=20 -XX:MaxGCPauseMillis=50 -XX:G1HeapRegionSize=32M"
-    );
-    if !extra.trim().is_empty() {
-        args.push(' ');
-        args.push_str(extra.trim());
-    }
+    let args = java_args(memory_mb, extra);
     profiles.insert(
         key,
         json!({

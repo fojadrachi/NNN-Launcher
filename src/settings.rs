@@ -10,11 +10,13 @@ pub struct Settings {
     pub jvm_args: String,
     pub official_launcher_path: String,
     pub close_on_launch: bool,
+    /// "official" = über den Minecraft Launcher, "direct" = der NNN Launcher startet selbst
+    pub launch_mode: String,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { memory_mb: 4096, jvm_args: String::new(), official_launcher_path: String::new(), close_on_launch: false }
+        Self { memory_mb: 4096, jvm_args: String::new(), official_launcher_path: String::new(), close_on_launch: false, launch_mode: "official".into() }
     }
 }
 

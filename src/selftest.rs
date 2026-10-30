@@ -132,6 +132,40 @@ pub fn run() -> i32 {
     }
 }
 
+/// Entwickler-Test des eigenen Spielstarts: legt eine Testinstanz an, startet sie offline und
+/// beendet das Spiel nach `secs` Sekunden wieder.
+#[cfg(debug_assertions)]
+pub fn game_test(loader: &str, mc: &str, version: &str, secs: u64) -> i32 {
+    use std::sync::Arc;
+    let rt = tokio::runtime::Runtime::new().expect("Tokio");
+    let res: anyhow::Result<()> = rt.block_on(async {
+        let lv = (!version.is_empty() && version != "-").then(|| version.to_string());
+        let inst = instances::create(&format!("Spielstart-Test {loader}"), mc, loader, lv)?;
+        let acc = crate::session::Account { id: "00000000000000000000000000000001".into(), name: "NNNTest".into(), kind: "legacy".into(), ..Default::default() };
+        let res = async {
+            let progress: crate::game::Progress = Arc::new(|s| println!("{s}"));
+            let mut run = crate::game::launch(&inst, &acc, 3072, "", progress).await?;
+            println!("Gestartet, Log: {}", run.log.display());
+            tokio::time::sleep(std::time::Duration::from_secs(secs)).await;
+            run.kill().await;
+            let log = std::fs::read_to_string(&run.log)?;
+            std::fs::copy(&run.log, paths::logs().join(format!("gametest-{loader}.log")))?;
+            println!("Log: {} Zeilen", log.lines().count());
+            anyhow::Ok(())
+        }
+        .await;
+        instances::delete(&inst.id)?;
+        res
+    });
+    match res {
+        Ok(()) => 0,
+        Err(e) => {
+            println!("FEHLER: {e:#}");
+            1
+        }
+    }
+}
+
 /// Entwickler-Test gegen einen lokalen Server (NNN_SERVER): zwei Konten, Teilen, Beitreten,
 /// installierte Version melden, Update erzwingen und automatisch anwenden.
 #[cfg(debug_assertions)]

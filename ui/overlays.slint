@@ -307,6 +307,30 @@ export component ShareDialog inherits Dialog {
     }
 }
 
+export component MsLoginDialog inherits Dialog {
+    title: "Mit Microsoft anmelden";
+    dialog-width: 480px;
+    Text {
+        text: AppState.ms-code == "" ? "Verbindung zu Microsoft wird hergestellt …" : "Öffne die Microsoft-Seite, gib dort diesen Code ein und melde dich mit deinem Minecraft-Konto an. Dein Passwort siehst nur du auf der Seite von Microsoft.";
+        color: Theme.mut;
+        wrap: word-wrap;
+    }
+    if AppState.ms-code != "": Rectangle {
+        height: 76px;
+        border-radius: 14px;
+        background: Theme.bg;
+        border-width: 1px;
+        border-color: Theme.line;
+        Text { text: AppState.ms-code; color: Theme.fg; font-size: 30px; font-weight: 700; font-family: Theme.mono; letter-spacing: 4px; }
+    }
+    if AppState.ms-code != "": Text { text: "Der Launcher wartet auf die Anmeldung …"; color: Theme.mut; font-size: 12px; }
+    Actions {
+        Button { text: "Abbrechen"; clicked => { AppState.ms-cancel(); AppState.modal = ""; } }
+        if AppState.ms-code != "": Button { text: "Code kopieren"; clicked => { AppState.copy(AppState.ms-code); } }
+        if AppState.ms-code != "": Button { text: "Seite öffnen"; kind: "primary"; clicked => { AppState.copy(AppState.ms-code); AppState.open-url(AppState.ms-url); } }
+    }
+}
+
 export component ConfirmDialog inherits Dialog {
     title: AppState.confirm-title;
     dialog-width: 460px;

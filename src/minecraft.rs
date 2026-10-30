@@ -46,7 +46,7 @@ pub async fn release_versions() -> Result<Vec<String>> {
         .unwrap_or_default())
 }
 
-async fn version_json(id: &str) -> Result<Value> {
+pub async fn version_json(id: &str) -> Result<Value> {
     let m = manifest().await?;
     let entry = m["versions"]
         .as_array()

@@ -3,11 +3,12 @@
 use crate::instances::{self, Instance, Kind};
 use crate::settings::{self, Event, NotifStore, Outgoing, Settings};
 use crate::session::{self, User};
-use crate::{api, loaders, minecraft, mods, official, p2p, scan, updater, AppState, AppWindow};
-use crate::{BadgeCodeItem, HitItem, InstanceItem, MemberItem, ModItem, NotifItem, PackItem, ToastItem, UserItem, VersionItem};
+use crate::{api, game, loaders, minecraft, mods, msauth, official, p2p, scan, updater, AppState, AppWindow};
+use crate::{BadgeCodeItem, HitItem, InstanceItem, MemberItem, ModItem, MsAccountItem, NotifItem, PackItem, ToastItem, UserItem, VersionItem};
 use anyhow::Result;
 use slint::{ComponentHandle, Model, ModelRc, Rgba8Pixel, SharedPixelBuffer, SharedString, VecModel};
 use std::collections::{HashMap, HashSet};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 type Pixels = SharedPixelBuffer<Rgba8Pixel>;
@@ -61,6 +62,12 @@ pub struct Data {
     /// Badge-Codes (nur für den Owner) und der zuletzt erzeugte
     badge_codes: Vec<api::BadgeCode>,
     last_badge_code: String,
+    /// Microsoft-Konten (ID, Name) – Tokens bleiben im verschlüsselten Speicher
+    ms_accounts: Vec<(String, String)>,
+    ms_selected: Option<String>,
+    /// Laufender Geräte-Login: Code und Adresse
+    ms_code: Option<msauth::DeviceCode>,
+    ms_cancel: Option<Arc<AtomicBool>>,
 }
 
 pub struct Ctrl {
@@ -76,6 +83,9 @@ impl Ctrl {
     pub fn new(ui: slint::Weak<AppWindow>, rt: tokio::runtime::Handle) -> C {
         let mut d = Data { settings: settings::load(), server_online: true, ..Default::default() };
         d.instances = instances::list();
+        let (accounts, selected) = session::accounts();
+        d.ms_accounts = accounts.into_iter().map(|a| (a.id, a.name)).collect();
+        d.ms_selected = selected;
         if let Some((token, user)) = session::load() {
             api::set_token(Some(token));
             d.notif = settings::load_notifs(user.id);
@@ -619,6 +629,105 @@ impl Ctrl {
         });
     }
 
+    fn reload_accounts(self: &C) {
+        let (accounts, selected) = session::accounts();
+        self.with(|d| {
+            d.ms_accounts = accounts.into_iter().map(|a| (a.id, a.name)).collect();
+            d.ms_selected = selected;
+        });
+        self.refresh();
+    }
+
+    pub fn load_account_images(self: &C) {
+        for (_, name) in self.with(|d| d.ms_accounts.clone()) {
+            self.want_image(&avatar_url(&name));
+        }
+    }
+
+    pub fn ms_login(self: &C) {
+        let cancel = Arc::new(AtomicBool::new(false));
+        self.with(|d| {
+            d.ms_code = None;
+            d.ms_cancel = Some(cancel.clone());
+            // Dialog bleibt offen, bis der Login endet oder abgebrochen wird
+            d.modal_busy = true;
+        });
+        self.refresh();
+        self.spawn(move |c| async move {
+            let cc = c.clone();
+            let show = move |code| {
+                cc.with(|d| d.ms_code = Some(code));
+                cc.refresh();
+            };
+            let res = msauth::login(show, &cancel).await;
+            // Abgebrochen: Dialog ist schon zu, ein neuer Versuch kann bereits laufen
+            if cancel.load(Ordering::SeqCst) {
+                return;
+            }
+            c.with(|d| {
+                d.ms_code = None;
+                d.ms_cancel = None;
+                d.modal_busy = false;
+            });
+            let _ = c.ui.upgrade_in_event_loop(|ui| ui.global::<AppState>().set_modal("".into()));
+            match res {
+                Ok(acc) => {
+                    c.want_image(&avatar_url(&acc.name));
+                    c.toast(format!("Angemeldet als {}", acc.name), "");
+                    session::upsert_account(acc);
+                    c.reload_accounts();
+                }
+                Err(e) => c.fail(e),
+            }
+        });
+    }
+
+    pub fn ms_cancel(self: &C) {
+        self.with(|d| {
+            if let Some(flag) = d.ms_cancel.take() {
+                flag.store(true, Ordering::SeqCst);
+            }
+            d.ms_code = None;
+            d.modal_busy = false;
+        });
+        self.refresh();
+    }
+
+    pub fn ms_select(self: &C, id: String) {
+        session::select_account(&id);
+        self.reload_accounts();
+    }
+
+    pub fn ms_remove(self: &C, id: String) {
+        session::remove_account(&id);
+        self.reload_accounts();
+        self.toast("Konto entfernt", "");
+    }
+
+    /// Eigener Start: Konto auffrischen, Spiel starten und bis zum Ende als „läuft“ anzeigen
+    async fn play_direct(self: &C, inst: Instance, s: Settings) -> Result<()> {
+        let (accounts, selected) = session::accounts();
+        let acc = accounts.into_iter().find(|a| Some(&a.id) == selected.as_ref()).ok_or_else(|| anyhow::anyhow!("Bitte zuerst in den Einstellungen mit Microsoft anmelden"))?;
+        self.set_busy(&inst.id, Some(("Konto prüfen", -1.0)));
+        let acc = msauth::ensure_fresh(acc).await?;
+        session::upsert_account(acc.clone());
+
+        let progress: game::Progress = Arc::new(self.progress_fn(&inst.id));
+        let run = game::launch(&inst, &acc, s.memory_mb, &s.jvm_args, progress).await?;
+        let log = run.log.clone();
+        self.set_busy(&inst.id, Some(("Spiel läuft", -1.0)));
+        self.toast(format!("Minecraft startet als {}", acc.name), "");
+        if s.close_on_launch {
+            let _ = self.ui.upgrade_in_event_loop(|ui| ui.window().set_minimized(true));
+        }
+        self.reload_instances();
+        let code = run.wait().await;
+        if code != 0 {
+            self.toast(format!("Minecraft wurde mit Fehler {code} beendet. Log: {}", log.display()), "error");
+        }
+        Ok(())
+    }
+
     pub fn play(self: &C, id: String) {
         let Some(inst) = self.inst(&id) else { return };
         if self.with(|d| d.busy.contains_key(&id)) {
@@ -627,6 +736,13 @@ impl Ctrl {
         self.set_busy(&id, Some(("Vorbereiten", -1.0)));
         self.spawn(move |c| async move {
             let s = c.with(|d| d.settings.clone());
+            if s.launch_mode == "direct" {
+                if let Err(e) = c.play_direct(inst, s).await {
+                    c.fail(e);
+                }
+                c.set_busy(&id, None);
+                return;
+            }
             let progress = c.progress_fn(&id);
             match official::launch(&inst, s.memory_mb, &s.jvm_args, &s.official_launcher_path, &progress).await {
                 Ok(r) => {
@@ -1256,12 +1372,13 @@ impl Ctrl {
         });
     }
 
-    pub fn save_settings(self: &C, memory: String, jvm: String, launcher: String, close: bool) {
+    pub fn save_settings(self: &C, memory: String, jvm: String, launcher: String, close: bool, direct: bool) {
         let s = Settings {
             memory_mb: memory.trim().parse::<u32>().unwrap_or(4096).clamp(1024, 65536),
             jvm_args: jvm.trim().to_string(),
             official_launcher_path: launcher.trim().to_string(),
             close_on_launch: close,
+            launch_mode: if direct { "direct" } else { "official" }.into(),
         };
         settings::save(&s);
         self.with(|d| d.settings = s);
@@ -1494,6 +1611,18 @@ fn apply(c: &C, ui: &AppWindow, d: &Data) {
     let s = ui.global::<AppState>();
     let user = d.user.as_ref();
     s.set_logged_in(user.is_some());
+    s.set_ms_accounts(model(
+        d.ms_accounts
+            .iter()
+            .map(|(id, name)| {
+                let (avatar, has_avatar) = image_of(d, Some(&avatar_url(name)));
+                MsAccountItem { id: id.clone().into(), name: name.clone().into(), active: d.ms_selected.as_ref() == Some(id), avatar, has_avatar }
+            })
+            .collect(),
+    ));
+    s.set_ms_active(d.ms_accounts.iter().find(|a| d.ms_selected.as_ref() == Some(&a.0)).map(|a| a.1.clone()).unwrap_or_default().into());
+    s.set_ms_code(d.ms_code.as_ref().map(|m| m.user_code.clone()).unwrap_or_default().into());
+    s.set_ms_url(d.ms_code.as_ref().map(|m| m.url.clone()).unwrap_or_default().into());
     s.set_username(user.map(|u| u.username.clone()).unwrap_or_default().into());
     s.set_server_online(d.server_online);
     let (av, has) = image_of(d, user.map(|u| avatar_url(&u.username)).as_deref());

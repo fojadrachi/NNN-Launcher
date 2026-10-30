@@ -10,7 +10,7 @@ import { AppState, InstanceItem, ModItem, HitItem, UserItem, PackItem, MemberIte
 import { LibraryPage } from "library.slint";
 import { InstancePage } from "instance.slint";
 import { DiscoverPage, FriendsPage, SettingsPage } from "pages.slint";
-import { NotifPanel, NewInstanceDialog, JoinDialog, PublishDialog, PushDialog, ShareDialog, ConfirmDialog, UpdateDialog, ProfileDialog, InviteFriendDialog, Toasts } from "overlays.slint";
+import { NotifPanel, NewInstanceDialog, JoinDialog, PublishDialog, PushDialog, ShareDialog, ConfirmDialog, UpdateDialog, ProfileDialog, InviteFriendDialog, MsLoginDialog, Toasts } from "overlays.slint";
 
 export { AppState, InstanceItem, ModItem, HitItem, UserItem, PackItem, MemberItem, VersionItem, NotifItem, ToastItem, BadgeCodeItem }
 
@@ -192,7 +192,7 @@ export component AppWindow inherits Window {
                                     if AppState.my-badge-owner: VerticalLayout { alignment: center; UserBadge { kind: "owner"; } }
                                     if !AppState.my-badge-owner && AppState.my-badge-beta: VerticalLayout { alignment: center; UserBadge { kind: "beta"; } }
                                 }
-                                Text { text: "Minecraft über Mojang"; color: Theme.mut; font-size: 11px; }
+                                Text { text: !AppState.set-direct ? "Minecraft über Mojang" : AppState.ms-active != "" ? "Minecraft: " + AppState.ms-active : "Minecraft: nicht angemeldet"; color: Theme.mut; font-size: 11px; }
                             }
                         }
                         a-ta := TouchArea { mouse-cursor: pointer; clicked => { AppState.page = AppState.logged-in ? "settings" : "friends"; } }
@@ -226,6 +226,7 @@ export component AppWindow inherits Window {
     if AppState.modal == "update": UpdateDialog { }
     if AppState.modal == "profile": ProfileDialog { }
     if AppState.modal == "invite-friend": InviteFriendDialog { }
+    if AppState.modal == "ms-login": MsLoginDialog { }
 
     Toasts { x: root.width - 400px; y: root.height - self.preferred-height - 22px; width: 380px; }
 }

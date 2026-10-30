@@ -363,15 +363,40 @@ export component SettingsPage inherits ScrollView {
 
         PageHead { a: ""; b: "Einstellungen"; }
 
-        SectionTitle { text: "SPIELSTART"; }
+        SectionTitle { text: "MINECRAFT-KONTO"; }
         Text {
-            text: "Der NNN Launcher legt für jede Instanz ein Profil „NNN: <Name>“ an und öffnet den offiziellen Minecraft Launcher. Anmeldung und Spielstart laufen dort. Fehlt er auf dem PC, wird er einmalig von Mojang geladen.";
+            text: "Nötig, wenn der NNN Launcher das Spiel selbst startet. Die Anmeldung läuft über Microsoft, der Launcher speichert dein Passwort nicht.";
             color: Theme.mut;
             font-size: 13px;
             wrap: word-wrap;
         }
-        Label { text: "PFAD ZUM MINECRAFT LAUNCHER (OPTIONAL)"; }
-        Field { text <=> AppState.set-launcher; placeholder: "automatisch"; mono: true; }
+        for a in AppState.ms-accounts: Card {
+            height: 60px;
+            HorizontalLayout {
+                padding-left: 14px;
+                padding-right: 14px;
+                spacing: 12px;
+                VerticalLayout { alignment: center; Thumb { img: a.avatar; has-img: a.has-avatar; fallback: a.name; size: 36px; round: true; } }
+                VerticalLayout { alignment: center; horizontal-stretch: 1; Text { text: a.name; color: Theme.fg; font-size: 14px; font-weight: 600; } }
+                if a.active: VerticalLayout { alignment: center; Tag { text: "Aktiv"; kind: "good"; } }
+                if !a.active: VerticalLayout { alignment: center; Button { text: "Verwenden"; clicked => { AppState.ms-select(a.id); } } }
+                VerticalLayout { alignment: center; Button { text: "Entfernen"; clicked => { AppState.ms-remove(a.id); } } }
+            }
+        }
+        HorizontalLayout { alignment: start; Button { text: AppState.ms-accounts.length > 0 ? "Weiteres Konto anmelden" : "Mit Microsoft anmelden"; kind: "primary"; clicked => { AppState.modal = "ms-login"; AppState.ms-login(); } } }
+
+        SectionTitle { text: "SPIELSTART"; }
+        Check { text: "Spiel direkt aus dem NNN Launcher starten"; checked <=> AppState.set-direct; }
+        Text {
+            text: AppState.set-direct
+                ? "Der NNN Launcher lädt die Spieldateien und startet Minecraft selbst mit dem aktiven Konto."
+                : "Der NNN Launcher legt für jede Instanz ein Profil „NNN: <Name>“ an und öffnet den offiziellen Minecraft Launcher. Anmeldung und Spielstart laufen dort. Fehlt er auf dem PC, wird er einmalig von Mojang geladen.";
+            color: Theme.mut;
+            font-size: 13px;
+            wrap: word-wrap;
+        }
+        if !AppState.set-direct: Label { text: "PFAD ZUM MINECRAFT LAUNCHER (OPTIONAL)"; }
+        if !AppState.set-direct: Field { text <=> AppState.set-launcher; placeholder: "automatisch"; mono: true; }
         Label { text: "ARBEITSSPEICHER (MB)"; }
         Field { text <=> AppState.set-memory; mono: true; }
         Label { text: "ZUSÄTZLICHE JVM-ARGUMENTE"; }

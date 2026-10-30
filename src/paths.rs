@@ -21,6 +21,9 @@ pub fn root() -> &'static Path {
 
 pub fn game() -> PathBuf { root().join("minecraft") }
 pub fn versions() -> PathBuf { game().join("versions") }
+pub fn libraries() -> PathBuf { game().join("libraries") }
+pub fn assets() -> PathBuf { game().join("assets") }
+pub fn natives() -> PathBuf { root().join("natives") }
 pub fn runtimes() -> PathBuf { root().join("runtimes") }
 pub fn cache() -> PathBuf { root().join("cache") }
 pub fn instances() -> PathBuf { root().join("instances") }

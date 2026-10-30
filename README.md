@@ -20,6 +20,8 @@ Oberfläche mit [Slint](https://slint.dev). Schnell, klein (rund 20 MB) und ohne
 - **Spielstart über den offiziellen Minecraft Launcher** (wie bei CurseForge): Der NNN Launcher legt ein Profil
   „NNN: &lt;Name&gt;“ an und öffnet den Launcher von Mojang mit eigenem Arbeitsordner. Anmeldung und Spieldateien
   laufen dort. Fehlt er auf dem PC, wird er einmalig von Mojang geladen und die Signatur geprüft.
+- **Eigener Spielstart mit Microsoft-Login** (Einstellungen → Spielstart): Anmeldung per Code auf microsoft.com/link,
+  mehrere Konten möglich. Der NNN Launcher lädt die Spieldateien und startet Minecraft selbst.
 - **Freunde** per Benutzername hinzufügen
 - **Modpacks teilen** per Einladungslink oder Code (`nnnlauncher://join/CODE`)
 - **Updates pushen:** Besitzer oder Editoren klicken „Update veröffentlichen“, alle Mitglieder sehen

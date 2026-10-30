@@ -3,10 +3,12 @@
 
 mod api;
 mod app;
+mod game;
 mod instances;
 mod loaders;
 mod minecraft;
 mod mods;
+mod msauth;
 mod net;
 mod official;
 mod p2p;
@@ -41,6 +43,15 @@ fn main() -> Result<(), slint::PlatformError> {
     if std::env::args().any(|a| a == "--synctest") {
         paths::ensure();
         std::process::exit(selftest::sync_test());
+    }
+    // Entwickler-Test: `--gametest <loader> <mc> <loader-version> <sekunden>` startet das Spiel offline
+    #[cfg(debug_assertions)]
+    {
+        let args: Vec<String> = std::env::args().collect();
+        if args.get(1).map(String::as_str) == Some("--gametest") {
+            paths::ensure();
+            std::process::exit(selftest::game_test(&args[2], &args[3], &args[4], args.get(5).and_then(|s| s.parse().ok()).unwrap_or(90)));
+        }
     }
     if std::env::args().any(|a| a == "--selftest") {
         paths::ensure();
@@ -88,6 +99,8 @@ fn main() -> Result<(), slint::PlatformError> {
     state.set_set_jvm(s.jvm_args.into());
     state.set_set_launcher(s.official_launcher_path.into());
     state.set_set_close(s.close_on_launch);
+    state.set_set_direct(s.launch_mode == "direct");
+    ctrl.load_account_images();
     ctrl.refresh();
 
     // Start: Daten laden, danach regelmäßig nachsehen
@@ -166,6 +179,7 @@ fn screenshot_tour(ui: &AppWindow, dir: String) {
         ("settings", "", ""),
         ("library", "", "notif"),
         ("library", "", "new-instance"),
+        ("settings", "", "ms-login"),
     ];
     let weak = ui.as_weak();
     let step = std::rc::Rc::new(std::cell::Cell::new(0usize));
@@ -187,7 +201,11 @@ fn screenshot_tour(ui: &AppWindow, dir: String) {
         }
         let (page, tab, extra) = steps[i];
         s.set_notif_open(extra == "notif");
-        s.set_modal(if extra == "new-instance" { "new-instance".into() } else { "".into() });
+        s.set_modal(if extra == "new-instance" { "new-instance".into() } else if extra == "ms-login" { "ms-login".into() } else { "".into() });
+        if extra == "ms-login" {
+            s.set_set_direct(true);
+            s.set_ms_code("ABCD-EFGH".into());
+        }
         if extra == "profile" {
             if let Some(f) = s.get_friends().row_data(0) {
                 s.set_profile(f);
@@ -465,9 +483,13 @@ fn wire(ui: &AppWindow, ctrl: &app::C) {
     on!(on_save_settings, |c| {
         if let Some(ui) = c.ui.upgrade() {
             let st = ui.global::<AppState>();
-            c.save_settings(st.get_set_memory().into(), st.get_set_jvm().into(), st.get_set_launcher().into(), st.get_set_close());
+            c.save_settings(st.get_set_memory().into(), st.get_set_jvm().into(), st.get_set_launcher().into(), st.get_set_close(), st.get_set_direct());
         }
     });
+    on!(on_ms_login, |c| c.ms_login());
+    on!(on_ms_cancel, |c| c.ms_cancel());
+    on!(on_ms_select, |c, id: slint::SharedString| c.ms_select(id.into()));
+    on!(on_ms_remove, |c, id: slint::SharedString| c.ms_remove(id.into()));
     on!(on_check_update, |c| c.spawn(|c| async move { c.check_update(true).await }));
     on!(on_install_update, |c| c.install_update());
     on!(on_copy, |c, text: slint::SharedString| {
