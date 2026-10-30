@@ -134,7 +134,7 @@ fn main() -> Result<(), slint::PlatformError> {
         c.check_update(false).await;
     });
     // P2P-Knoten starten, eigene Dateien anbieten und fehlende nachladen (jede Minute)
-    if !dev {
+    if !dev || (std::env::var_os("NNN_UI_SCRIPT").is_some() && std::env::var_os("NNN_NO_P2P").is_none()) {
         ctrl.spawn(|c| async move {
             let _ = p2p::start().await;
             loop {
@@ -180,12 +180,69 @@ fn main() -> Result<(), slint::PlatformError> {
                 }
             });
         }
+        #[cfg(debug_assertions)]
+        if let Ok(script) = std::env::var("NNN_UI_SCRIPT") {
+            ui_script(&ui, dir.clone(), script);
+        } else {
+            screenshot_tour(&ui, dir);
+        }
+        #[cfg(not(debug_assertions))]
         screenshot_tour(&ui, dir);
     }
 
     ui.run()?;
     drop(rt);
     Ok(())
+}
+
+/// Nur für die Entwicklung: klickt und tippt im Fenster nach einem Skript wie ein Nutzer.
+/// Zeilen: `click <x> <y>`, `type <text>`, `key <tab|enter|ctrl+a>`, `shot <name>`, `wait`
+#[cfg(debug_assertions)]
+fn ui_script(ui: &AppWindow, dir: String, script: String) {
+    use slint::platform::{PointerEventButton, WindowEvent};
+    use slint::LogicalPosition;
+    let lines: Vec<String> = std::fs::read_to_string(script).unwrap_or_default().lines().map(String::from).collect();
+    let weak = ui.as_weak();
+    let step = std::rc::Rc::new(std::cell::Cell::new(0usize));
+    let timer = Box::leak(Box::new(slint::Timer::default()));
+    timer.start(slint::TimerMode::Repeated, std::time::Duration::from_millis(1500), move || {
+        let Some(ui) = weak.upgrade() else { return };
+        let i = step.get();
+        step.set(i + 1);
+        let Some(line) = lines.get(i) else {
+            let _ = slint::quit_event_loop();
+            return;
+        };
+        let (cmd, arg) = line.split_once(' ').unwrap_or((line.as_str(), ""));
+        match cmd {
+            "click" => {
+                let (x, y) = arg.split_once(' ').unwrap_or(("0", "0"));
+                let position = LogicalPosition::new(x.parse().unwrap_or(0.0), y.parse().unwrap_or(0.0));
+                ui.window().dispatch_event(WindowEvent::PointerMoved { position });
+                ui.window().dispatch_event(WindowEvent::PointerPressed { position, button: PointerEventButton::Left });
+                let weak = ui.as_weak();
+                slint::Timer::single_shot(std::time::Duration::from_millis(250), move || {
+                    if let Some(ui) = weak.upgrade() {
+                        ui.window().dispatch_event(WindowEvent::PointerReleased { position, button: PointerEventButton::Left });
+                    }
+                });
+            }
+            "type" => {
+                for c in arg.chars() {
+                    let text: slint::SharedString = c.to_string().into();
+                    ui.window().dispatch_event(WindowEvent::KeyPressed { text: text.clone() });
+                    ui.window().dispatch_event(WindowEvent::KeyReleased { text });
+                }
+            }
+            "shot" => {
+                if let Ok(px) = ui.window().take_snapshot() {
+                    let path = std::path::Path::new(&dir).join(format!("{arg}.png"));
+                    let _ = image::save_buffer(&path, px.as_bytes(), px.width(), px.height(), image::ExtendedColorType::Rgba8);
+                }
+            }
+            _ => {}
+        }
+    });
 }
 
 /// Nur für die Entwicklung: Seiten nacheinander öffnen und als PNG speichern

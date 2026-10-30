@@ -1307,6 +1307,7 @@ impl Ctrl {
                     c.want_image(&avatar_url(&r.user.username));
                     c.toast(format!("Willkommen, {}!", r.user.username), "");
                     c.set_session(Some(r.token), Some(r.user));
+                    let _ = c.ui.upgrade_in_event_loop(|ui| ui.global::<AppState>().set_login_pass("".into()));
                     c.refresh_server().await;
                 }
                 Err(e) => c.fail(e),

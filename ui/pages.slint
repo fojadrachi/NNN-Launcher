@@ -120,9 +120,6 @@ export component DiscoverPage inherits ScrollView {
 
 export component FriendsPage inherits ScrollView {
     property <length> content-w: min(self.visible-width - 80px, 1240px);
-    property <string> user;
-    property <string> pass;
-    property <string> friend;
     VerticalLayout {
         alignment: start;
         padding-top: 34px;
@@ -151,15 +148,15 @@ export component FriendsPage inherits ScrollView {
                         }
                         Rectangle { height: 6px; }
                         Label { text: "BENUTZERNAME"; }
-                        Field { text <=> user; }
+                        Field { text <=> AppState.login-user; }
                         Label { text: "PASSWORT"; }
-                        Field { text <=> pass; password: true; accepted => { AppState.login(user, pass); } }
+                        Field { text <=> AppState.login-pass; password: true; accepted => { AppState.login(AppState.login-user, AppState.login-pass); } }
                         Rectangle { height: 6px; }
                         HorizontalLayout {
                             spacing: 10px;
                             alignment: start;
-                            Button { text: "Anmelden"; kind: "primary"; busy: AppState.modal-busy; clicked => { AppState.login(user, pass); } }
-                            Button { text: "Konto erstellen"; clicked => { AppState.register(user, pass); } }
+                            Button { text: "Anmelden"; kind: "primary"; busy: AppState.modal-busy; clicked => { AppState.login(AppState.login-user, AppState.login-pass); } }
+                            Button { text: "Konto erstellen"; clicked => { AppState.register(AppState.login-user, AppState.login-pass); } }
                         }
                     }
                 }
@@ -295,8 +292,8 @@ export component FriendsPage inherits ScrollView {
                             Text { text: "NNN-Benutzername eingeben"; color: Theme.mut; font-size: 12px; }
                             HorizontalLayout {
                                 spacing: 8px;
-                                Field { horizontal-stretch: 1; text <=> friend; placeholder: "Benutzername"; accepted => { AppState.add-friend(friend); friend = ""; } }
-                                Button { icon: Icons.plus; kind: "primary"; clicked => { AppState.add-friend(friend); friend = ""; } }
+                                Field { horizontal-stretch: 1; text <=> AppState.friend-name; placeholder: "Benutzername"; accepted => { AppState.add-friend(AppState.friend-name); AppState.friend-name = ""; } }
+                                Button { icon: Icons.plus; kind: "primary"; clicked => { AppState.add-friend(AppState.friend-name); AppState.friend-name = ""; } }
                             }
                         }
                     }

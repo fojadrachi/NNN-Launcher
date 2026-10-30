@@ -142,6 +142,9 @@ export global AppState {
     // Konto
     in property <bool> logged-in;
     in property <string> username;
+    in-out property <string> login-user;
+    in-out property <string> login-pass;
+    in-out property <string> friend-name;
     in property <bool> server-online: true;
     in property <image> my-avatar;
     in property <bool> has-my-avatar;

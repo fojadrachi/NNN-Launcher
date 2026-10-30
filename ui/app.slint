@@ -228,5 +228,5 @@ export component AppWindow inherits Window {
     if AppState.modal == "invite-friend": InviteFriendDialog { }
     if AppState.modal == "ms-login": MsLoginDialog { }
 
-    Toasts { x: root.width - 400px; y: root.height - self.preferred-height - 22px; width: 380px; }
+    Toasts { x: root.width - 400px; y: root.height - self.preferred-height - 22px; width: 380px; height: self.preferred-height; }
 }
