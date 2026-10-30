@@ -450,8 +450,8 @@ pub fn collect_overrides(id: &str) -> Result<Vec<OverrideEntry>> {
                 continue;
             }
             total += len;
-            if total > 1_100_000 {
-                bail!("Config-Ordner zu groß zum Mitschicken (max. ca. 1 MB).");
+            if total > 20_000_000 {
+                bail!("Config-Ordner zu groß zum Mitschicken (max. 20 MB).");
             }
             let bytes = std::fs::read(&f)?;
             let rel = f.strip_prefix(&game)?.to_string_lossy().replace('\\', "/");
