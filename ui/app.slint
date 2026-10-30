@@ -5,14 +5,14 @@ import "fonts/JetBrainsMono-Medium.ttf";
 import "fonts/JetBrainsMono-Bold.ttf";
 
 import { Theme, Icons } from "theme.slint";
-import { Icon, Badge, Thumb } from "widgets.slint";
-import { AppState, InstanceItem, ModItem, HitItem, UserItem, PackItem, MemberItem, VersionItem, NotifItem, ToastItem } from "state.slint";
+import { Icon, Badge, Thumb, UserBadge } from "widgets.slint";
+import { AppState, InstanceItem, ModItem, HitItem, UserItem, PackItem, MemberItem, VersionItem, NotifItem, ToastItem, BadgeCodeItem } from "state.slint";
 import { LibraryPage } from "library.slint";
 import { InstancePage } from "instance.slint";
 import { DiscoverPage, FriendsPage, SettingsPage } from "pages.slint";
-import { NotifPanel, NewInstanceDialog, JoinDialog, PublishDialog, PushDialog, ShareDialog, ConfirmDialog, UpdateDialog, Toasts } from "overlays.slint";
+import { NotifPanel, NewInstanceDialog, JoinDialog, PublishDialog, PushDialog, ShareDialog, ConfirmDialog, UpdateDialog, ProfileDialog, InviteFriendDialog, Toasts } from "overlays.slint";
 
-export { AppState, InstanceItem, ModItem, HitItem, UserItem, PackItem, MemberItem, VersionItem, NotifItem, ToastItem }
+export { AppState, InstanceItem, ModItem, HitItem, UserItem, PackItem, MemberItem, VersionItem, NotifItem, ToastItem, BadgeCodeItem }
 
 component NavItem inherits Rectangle {
     in property <string> text;
@@ -33,7 +33,14 @@ component NavItem inherits Rectangle {
         Text { text: text; color: active ? Theme.acc-ink : ta.has-hover ? Theme.fg : Theme.mut; font-size: 14px; font-weight: active ? 700 : 500; vertical-alignment: center; }
         if badge > 0: VerticalLayout { alignment: center; Badge { count: badge; } }
     }
-    ta := TouchArea { mouse-cursor: pointer; clicked => { AppState.page = target; AppState.notif-open = false; } }
+    ta := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            AppState.page = target;
+            AppState.notif-open = false;
+            if (target == "settings") { AppState.load-badge-codes(); }
+        }
+    }
 }
 
 export component AppWindow inherits Window {
@@ -179,7 +186,12 @@ export component AppWindow inherits Window {
                             }
                             VerticalLayout {
                                 alignment: center;
-                                Text { text: AppState.logged-in ? AppState.username : "Anmelden"; color: Theme.fg; font-size: 13px; font-weight: 600; }
+                                HorizontalLayout {
+                                    spacing: 6px;
+                                    Text { text: AppState.logged-in ? AppState.username : "Anmelden"; color: Theme.fg; font-size: 13px; font-weight: 600; }
+                                    if AppState.my-badge-owner: VerticalLayout { alignment: center; UserBadge { kind: "owner"; } }
+                                    if !AppState.my-badge-owner && AppState.my-badge-beta: VerticalLayout { alignment: center; UserBadge { kind: "beta"; } }
+                                }
                                 Text { text: "Minecraft über Mojang"; color: Theme.mut; font-size: 11px; }
                             }
                         }
@@ -212,6 +224,8 @@ export component AppWindow inherits Window {
     if AppState.modal == "share": ShareDialog { }
     if AppState.modal == "confirm": ConfirmDialog { }
     if AppState.modal == "update": UpdateDialog { }
+    if AppState.modal == "profile": ProfileDialog { }
+    if AppState.modal == "invite-friend": InviteFriendDialog { }
 
     Toasts { x: root.width - 400px; y: root.height - self.preferred-height - 22px; width: 380px; }
 }

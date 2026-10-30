@@ -54,6 +54,8 @@ export struct UserItem {
     id: int,
     name: string,
     sub: string,
+    badge-owner: bool,
+    badge-beta: bool,
     avatar: image,
     has-avatar: bool,
 }
@@ -78,6 +80,8 @@ export struct MemberItem {
     installed-ok: bool,
     installed-known: bool,
     installed-when: string,
+    badge-owner: bool,
+    badge-beta: bool,
     avatar: image,
     has-avatar: bool,
 }
@@ -107,6 +111,14 @@ export struct NotifItem {
     has-avatar: bool,
 }
 
+export struct BadgeCodeItem {
+    code: string,
+    badge: string,
+    uses: string,
+    expires: string,
+    used-up: bool,
+}
+
 export struct ToastItem {
     id: int,
     text: string,
@@ -125,6 +137,15 @@ export global AppState {
     in property <bool> server-online: true;
     in property <image> my-avatar;
     in property <bool> has-my-avatar;
+    in property <bool> my-badge-owner;
+    in property <bool> my-badge-beta;
+    // Freundes-Menü
+    in-out property <UserItem> profile;
+    in property <[PackItem]> invite-targets;
+    // Badge-Codes
+    in-out property <string> badge-code;
+    in property <string> last-badge-code;
+    in property <[BadgeCodeItem]> badge-codes;
 
     // Bibliothek
     in property <[InstanceItem]> instances;
@@ -260,6 +281,10 @@ export global AppState {
     callback copy(string);
     callback confirmed(string, string);
     callback dismiss-toast(int);
+    callback redeem-badge(string);
+    callback create-badge-code(int, int);
+    callback delete-badge-code(string);
+    callback load-badge-codes();
 
     // Bestätigungsdialog öffnen
     public function ask(title: string, text: string, ok: string, act: string, arg: string) {

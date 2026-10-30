@@ -1,6 +1,6 @@
 import { ScrollView, ComboBox } from "std-widgets.slint";
 import { Theme, Icons } from "theme.slint";
-import { Button, IconButton, Icon, Card, ProgressBar, Label, Thumb, Field, TextArea, Check, Monogram } from "widgets.slint";
+import { Button, IconButton, Icon, Card, ProgressBar, Label, Thumb, Field, TextArea, Check, Monogram, Badges } from "widgets.slint";
 import { AppState } from "state.slint";
 
 // ---------- Benachrichtigungen ----------
@@ -339,6 +339,59 @@ export component UpdateDialog inherits Dialog {
         Button { text: "Später"; enabled: !AppState.update-busy; clicked => { AppState.modal = ""; } }
         Button { text: AppState.update-busy ? "Wird installiert …" : "Aktualisieren & neu starten"; kind: "primary"; busy: AppState.update-busy; clicked => { AppState.install-update(); } }
     }
+}
+
+// ---------- Freundes-Menü ----------
+
+export component ProfileDialog inherits Dialog {
+    title: "";
+    dialog-width: 440px;
+    HorizontalLayout {
+        alignment: center;
+        Thumb { img: AppState.profile.avatar; has-img: AppState.profile.has-avatar; fallback: AppState.profile.name; size: 104px; round: true; }
+    }
+    Text { text: AppState.profile.name; color: Theme.fg; font-size: 26px; font-weight: 700; horizontal-alignment: center; letter-spacing: -0.5px; }
+    if AppState.profile.badge-owner || AppState.profile.badge-beta: HorizontalLayout {
+        alignment: center;
+        Badges { owner: AppState.profile.badge-owner; beta: AppState.profile.badge-beta; large: true; }
+    }
+    if AppState.profile.sub != "": Text { text: "Ihr seid Freunde " + AppState.profile.sub; color: Theme.mut; font-size: 13px; horizontal-alignment: center; }
+    Actions {
+        alignment: center;
+        Button { text: "Entfernen"; kind: "danger"; clicked => { AppState.ask("Freund entfernen?", AppState.profile.name + " wird aus deiner Freundesliste entfernt.", "Entfernen", "remove-friend", AppState.profile.id); } }
+        Button { text: "In Pack einladen"; icon: Icons.box; kind: "primary"; clicked => { AppState.modal = "invite-friend"; } }
+    }
+}
+
+export component InviteFriendDialog inherits Dialog {
+    title: AppState.profile.name + " einladen";
+    if AppState.invite-targets.length == 0: Text {
+        text: "Du hast noch kein geteiltes Pack, das du bearbeiten darfst. Teile zuerst eine Instanz unter „Teilen & Freunde“.";
+        color: Theme.mut;
+        wrap: word-wrap;
+    }
+    for p in AppState.invite-targets: Rectangle {
+        height: 60px;
+        border-radius: 12px;
+        background: i-ta.has-hover ? Theme.panel-3 : Theme.panel-2;
+        border-width: 1px;
+        border-color: Theme.line;
+        HorizontalLayout {
+            padding-left: 12px;
+            padding-right: 12px;
+            spacing: 12px;
+            VerticalLayout { alignment: center; Monogram { letter: p.initial; tint: p.tint; size: 38px; } }
+            VerticalLayout {
+                alignment: center;
+                Text { text: p.name; color: Theme.fg; font-weight: 700; overflow: elide; }
+                Text { text: p.sub; color: Theme.mut; font-size: 12px; font-family: Theme.mono; }
+            }
+            Rectangle { horizontal-stretch: 1; }
+            VerticalLayout { alignment: center; Button { text: "Einladen"; kind: "primary"; small: true; clicked => { AppState.invite(p.id, AppState.profile.id); AppState.modal = ""; } } }
+        }
+        i-ta := TouchArea { }
+    }
+    Actions { Button { text: "Schließen"; clicked => { AppState.modal = ""; } } }
 }
 
 // ---------- Toasts ----------

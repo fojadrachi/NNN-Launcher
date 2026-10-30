@@ -4,7 +4,7 @@ use crate::instances::{self, Instance, Kind};
 use crate::settings::{self, Event, NotifStore, Outgoing, Settings};
 use crate::session::{self, User};
 use crate::{api, loaders, minecraft, mods, official, p2p, scan, updater, AppState, AppWindow};
-use crate::{HitItem, InstanceItem, MemberItem, ModItem, NotifItem, PackItem, ToastItem, UserItem, VersionItem};
+use crate::{BadgeCodeItem, HitItem, InstanceItem, MemberItem, ModItem, NotifItem, PackItem, ToastItem, UserItem, VersionItem};
 use anyhow::Result;
 use slint::{ComponentHandle, Model, ModelRc, Rgba8Pixel, SharedPixelBuffer, SharedString, VecModel};
 use std::collections::{HashMap, HashSet};
@@ -58,6 +58,9 @@ pub struct Data {
     scanning: HashSet<String>,
     /// Gerade laufende P2P-Nachlade-Vorgänge (Instanz-IDs)
     p2p_fetching: HashSet<String>,
+    /// Badge-Codes (nur für den Owner) und der zuletzt erzeugte
+    badge_codes: Vec<api::BadgeCode>,
+    last_badge_code: String,
 }
 
 pub struct Ctrl {
@@ -173,6 +176,85 @@ impl Ctrl {
         self.refresh();
     }
 
+    /// Nur Entwickler-Builds: anmelden, ohne die Sitzung zu speichern
+    #[cfg(debug_assertions)]
+    pub fn dev_login(self: &C, token: String, user: User) {
+        api::set_token(Some(token));
+        self.with(|d| d.user = Some(user));
+        self.refresh();
+    }
+
+    fn is_owner(&self) -> bool { self.with(|d| d.user.as_ref().is_some_and(|u| u.badges.iter().any(|b| b == "owner"))) }
+
+    pub async fn load_badge_codes(self: &C) {
+        if !self.is_owner() {
+            return;
+        }
+        if let Ok(codes) = api::badge_codes().await {
+            self.with(|d| d.badge_codes = codes);
+            self.refresh();
+        }
+    }
+
+    pub fn redeem_badge(self: &C, code: String) {
+        let code = code.trim().to_uppercase();
+        if code.is_empty() {
+            return;
+        }
+        self.spawn(move |c| async move {
+            match api::redeem_badge(&code).await {
+                Ok((badge, badges)) => {
+                    let label = match badge.as_str() { "beta" => "Beta Tester", "owner" => "Owner", b => b }.to_string();
+                    let user = c.with(|d| {
+                        if let Some(u) = d.user.as_mut() {
+                            u.badges = badges;
+                        }
+                        d.user.clone()
+                    });
+                    session::save(api::token().as_deref(), user.as_ref());
+                    c.toast(format!("Glückwunsch – du hast jetzt den Badge „{label}“!"), "");
+                    let _ = c.ui.upgrade_in_event_loop(|ui| ui.global::<AppState>().set_badge_code("".into()));
+                }
+                Err(e) => c.fail(e),
+            }
+            c.refresh();
+        });
+    }
+
+    pub fn create_badge_code(self: &C, uses_idx: i32, days_idx: i32) {
+        let uses = [1, 5, 10, 25, 0][uses_idx.clamp(0, 4) as usize];
+        let days = [0, 7, 30][days_idx.clamp(0, 2) as usize];
+        self.spawn(move |c| async move {
+            match api::create_badge_code("beta", uses, days).await {
+                Ok(code) => {
+                    crate::copy_to_clipboard(&code);
+                    c.with(|d| d.last_badge_code = code.clone());
+                    c.toast(format!("Code {code} erstellt und kopiert"), "");
+                    c.load_badge_codes().await;
+                }
+                Err(e) => c.fail(e),
+            }
+        });
+    }
+
+    pub fn delete_badge_code(self: &C, code: String) {
+        self.spawn(move |c| async move {
+            match api::delete_badge_code(&code).await {
+                Ok(()) => {
+                    c.with(|d| {
+                        d.badge_codes.retain(|x| x.code != code);
+                        if d.last_badge_code == code {
+                            d.last_badge_code.clear();
+                        }
+                    });
+                    c.toast("Code gelöscht", "");
+                }
+                Err(e) => c.fail(e),
+            }
+            c.refresh();
+        });
+    }
+
     pub fn toggle_item(self: &C, id: String, kind: Kind, file: String, enabled: bool) {
         match instances::set_enabled(&id, kind, &file, enabled) {
             Ok(()) => self.toast(format!("{} {}", file, if enabled { "eingeschaltet" } else { "ausgeschaltet" }), ""),
@@ -244,7 +326,14 @@ impl Ctrl {
         if !api::logged_in() {
             return;
         }
-        let (packs, friends) = tokio::join!(api::packs(), api::friends());
+        let (packs, friends, me) = tokio::join!(api::packs(), api::friends(), api::me());
+        if let Ok(me) = me {
+            let changed = self.with(|d| d.user.as_ref().map(|u| u.badges != me.badges || u.username != me.username).unwrap_or(false));
+            if changed {
+                session::save(api::token().as_deref(), Some(&me));
+                self.with(|d| d.user = Some(me));
+            }
+        }
         let online = packs.is_ok() || friends.is_ok();
         if let Err(e) = &packs {
             if e.downcast_ref::<api::Unauthorized>().is_some() {
@@ -1410,6 +1499,38 @@ fn apply(c: &C, ui: &AppWindow, d: &Data) {
     let (av, has) = image_of(d, user.map(|u| avatar_url(&u.username)).as_deref());
     s.set_my_avatar(av);
     s.set_has_my_avatar(has);
+    let my_badges: &[String] = user.map(|u| u.badges.as_slice()).unwrap_or(&[]);
+    s.set_my_badge_owner(my_badges.iter().any(|b| b == "owner"));
+    s.set_my_badge_beta(my_badges.iter().any(|b| b == "beta"));
+    s.set_last_badge_code(d.last_badge_code.clone().into());
+    s.set_badge_codes(model(
+        d.badge_codes
+            .iter()
+            .map(|b| BadgeCodeItem {
+                code: b.code.clone().into(),
+                badge: b.badge.clone().into(),
+                uses: (match b.max_uses { Some(m) => format!("{} / {m} eingelöst", b.uses), None => format!("{} eingelöst · unbegrenzt", b.uses) }).into(),
+                expires: b.expires_at.map(|e| format!("gültig bis {}", fmt_time(e))).unwrap_or_else(|| "läuft nicht ab".into()).into(),
+                used_up: b.max_uses.is_some_and(|m| b.uses >= m) || b.expires_at.is_some_and(|e| e < instances::now()),
+            })
+            .collect(),
+    ));
+    // Geteilte Packs, in die man einladen darf (Freundes-Menü)
+    s.set_invite_targets(model(
+        d.instances
+            .iter()
+            .filter(|i| i.pack_id.is_some() && i.can_edit())
+            .map(|i| PackItem {
+                id: i.id.clone().into(),
+                name: i.name.clone().into(),
+                sub: format!("{} · {}", i.manifest.minecraft, loaders::display(&i.manifest.loader)).into(),
+                initial: initial(&i.name),
+                tint: tint(&i.name),
+                busy: false,
+                progress: -1.0,
+            })
+            .collect(),
+    ));
 
     // Bibliothek: zuletzt gespielte Instanz groß oben
     let mut list: Vec<&Instance> = d.instances.iter().collect();
@@ -1568,6 +1689,8 @@ fn apply(c: &C, ui: &AppWindow, d: &Data) {
                                 installed_ok: m.installed_version >= p.latest_version,
                                 installed_known: m.installed_version > 0,
                                 installed_when: fmt_time(m.installed_at).into(),
+                                badge_owner: m.badges.iter().any(|b| b == "owner"),
+                                badge_beta: m.badges.iter().any(|b| b == "beta"),
                                 avatar,
                                 has_avatar,
                             }
@@ -1646,7 +1769,15 @@ fn apply(c: &C, ui: &AppWindow, d: &Data) {
             list.iter()
                 .map(|f| {
                     let (avatar, has_avatar) = image_of(d, Some(&avatar_url(&f.username)));
-                    UserItem { id: f.id as i32, name: f.username.clone().into(), sub: "".into(), avatar, has_avatar }
+                    UserItem {
+                        id: f.id as i32,
+                        name: f.username.clone().into(),
+                        sub: (if f.since > 0 { format!("seit {}", fmt_time(f.since).split(',').next().unwrap_or_default()) } else { String::new() }).into(),
+                        badge_owner: f.badges.iter().any(|b| b == "owner"),
+                        badge_beta: f.badges.iter().any(|b| b == "beta"),
+                        avatar,
+                        has_avatar,
+                    }
                 })
                 .collect(),
         )

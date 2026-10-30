@@ -70,10 +70,44 @@ pub async fn register(username: &str, password: &str) -> Result<AuthResult> {
 }
 pub async fn logout() { let _ = post("/auth/logout", json!({})).await; }
 
+#[derive(Deserialize)]
+struct Me { user: User }
+
+/// Eigenes Konto inkl. Badges
+pub async fn me() -> Result<User> { Ok(get::<Me>("/me").await?.user) }
+
+pub fn token() -> Option<String> { TOKEN.read().unwrap().clone() }
+
+// ---------- Badge-Codes ----------
+
+#[derive(Deserialize, Clone, Debug, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub struct BadgeCode { pub code: String, pub badge: String, pub max_uses: Option<i64>, pub uses: i64, pub created_at: i64, pub expires_at: Option<i64> }
+
+#[derive(Deserialize)]
+struct BadgeCodes { codes: Vec<BadgeCode> }
+
+/// Code einlösen, gibt die neue Badge-Liste zurück
+pub async fn redeem_badge(code: &str) -> Result<(String, Vec<String>)> {
+    let v = post("/badges/redeem", json!({ "code": code })).await?;
+    let badges = v["badges"].as_array().into_iter().flatten().filter_map(|b| b.as_str().map(String::from)).collect();
+    Ok((v["badge"].as_str().unwrap_or_default().to_string(), badges))
+}
+
+/// Nur für den Owner
+pub async fn badge_codes() -> Result<Vec<BadgeCode>> { Ok(get::<BadgeCodes>("/badges/codes").await?.codes) }
+pub async fn create_badge_code(badge: &str, max_uses: i64, days: i64) -> Result<String> {
+    let v = post("/badges/codes", json!({ "badge": badge, "maxUses": max_uses, "expiresInDays": days })).await?;
+    Ok(v["code"].as_str().unwrap_or_default().to_string())
+}
+pub async fn delete_badge_code(code: &str) -> Result<()> {
+    request(reqwest::Method::DELETE, &format!("/badges/codes/{code}"), None).await.map(|_| ())
+}
+
 // ---------- Freunde ----------
 
 #[derive(Deserialize, Clone, Debug, Default)]
-pub struct Friend { pub id: i64, pub username: String, #[serde(default)] pub since: i64 }
+pub struct Friend { pub id: i64, pub username: String, #[serde(default)] pub since: i64, #[serde(default)] pub badges: Vec<String> }
 
 #[derive(Deserialize, Clone, Debug, Default)]
 pub struct Friends { pub friends: Vec<Friend>, pub incoming: Vec<Friend>, pub outgoing: Vec<Friend> }
@@ -93,7 +127,7 @@ pub struct Owner { pub id: i64, pub username: String }
 
 #[derive(Deserialize, Clone, Debug, Default)]
 #[serde(rename_all = "camelCase", default)]
-pub struct Member { pub id: i64, pub username: String, pub role: String, pub installed_version: i64, pub installed_at: i64 }
+pub struct Member { pub id: i64, pub username: String, pub role: String, pub installed_version: i64, pub installed_at: i64, pub badges: Vec<String> }
 
 #[derive(Deserialize, Clone, Debug, Default)]
 #[serde(rename_all = "camelCase", default)]

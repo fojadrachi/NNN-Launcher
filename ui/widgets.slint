@@ -366,3 +366,57 @@ export component Toggle inherits Rectangle {
     }
     TouchArea { mouse-cursor: pointer; clicked => { root.toggled(!root.on); } }
 }
+
+// Badge eines Kontos ("owner" = Owner, "beta" = Beta Tester)
+export component UserBadge inherits Rectangle {
+    in property <string> kind;
+    in property <bool> large: false;
+    property <color> c: kind == "owner" ? Theme.acc : #b48cff;
+    height: large ? 26px : 20px;
+    horizontal-stretch: 0;
+    vertical-stretch: 0;
+    border-radius: self.height / 2;
+    background: kind == "owner"
+        ? @linear-gradient(90deg, #f5b43c33 0%, #ffc86122 100%)
+        : @linear-gradient(90deg, #8f6bff33 0%, #b48cff22 100%);
+    border-width: 1px;
+    border-color: c.transparentize(0.45);
+    HorizontalLayout {
+        padding-left: large ? 10px : 7px;
+        padding-right: large ? 11px : 8px;
+        spacing: 4px;
+        alignment: center;
+        VerticalLayout { alignment: center; Icon { d: kind == "owner" ? Icons.crown : Icons.flask; tint: c; size: large ? 13px : 10px; } }
+        Text {
+            text: kind == "owner" ? "Owner" : kind == "beta" ? "Beta Tester" : kind;
+            color: c;
+            font-size: large ? 12px : 10px;
+            font-weight: 700;
+            vertical-alignment: center;
+        }
+    }
+}
+
+// Alle Badges eines Kontos nebeneinander
+export component Badges inherits HorizontalLayout {
+    in property <bool> owner;
+    in property <bool> beta;
+    in property <bool> large: false;
+    spacing: 5px;
+    alignment: start;
+    if owner: UserBadge { kind: "owner"; large: root.large; }
+    if beta: UserBadge { kind: "beta"; large: root.large; }
+}
+
+// Name mit Badges dahinter
+export component NameWithBadges inherits HorizontalLayout {
+    in property <string> name;
+    in property <bool> owner;
+    in property <bool> beta;
+    in property <length> size: 14px;
+    in property <color> color: Theme.fg;
+    spacing: 8px;
+    alignment: start;
+    Text { text: name; color: root.color; font-size: size; font-weight: 700; vertical-alignment: center; overflow: elide; }
+    if owner || beta: VerticalLayout { alignment: center; Badges { owner: root.owner; beta: root.beta; } }
+}

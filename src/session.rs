@@ -12,6 +12,8 @@ use windows_sys::Win32::Security::Cryptography::{CryptProtectData, CryptUnprotec
 pub struct User {
     pub id: i64,
     pub username: String,
+    /// Vom Server vergeben, z. B. "owner", "beta"
+    pub badges: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
@@ -33,12 +35,27 @@ fn load_store() -> Store {
     std::fs::read(file()).ok().and_then(|b| unprotect(&b)).and_then(|raw| serde_json::from_slice(&raw).ok()).unwrap_or_default()
 }
 
+/// Entwickler-Builds gegen einen Testserver (NNN_SERVER) fassen die echte Anmeldung nie an
+fn test_server() -> bool {
+    #[cfg(debug_assertions)]
+    if std::env::var_os("NNN_SERVER").is_some() {
+        return true;
+    }
+    false
+}
+
 pub fn load() -> Option<(String, User)> {
+    if test_server() {
+        return None;
+    }
     let s = load_store();
     Some((s.server_token?, s.server_user?))
 }
 
 pub fn save(token: Option<&str>, user: Option<&User>) {
+    if test_server() {
+        return;
+    }
     let mut s = load_store();
     s.server_token = token.map(String::from);
     s.server_user = user.cloned();

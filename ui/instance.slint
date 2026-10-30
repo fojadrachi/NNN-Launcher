@@ -1,6 +1,6 @@
 import { ScrollView, ComboBox } from "std-widgets.slint";
 import { Theme, Icons } from "theme.slint";
-import { Button, IconButton, Icon, Tag, Monogram, Card, ProgressBar, Label, SectionTitle, Thumb, Field, Segmented, Toggle } from "widgets.slint";
+import { Button, IconButton, Icon, Tag, Monogram, Card, ProgressBar, Label, SectionTitle, Thumb, Field, Segmented, Toggle, NameWithBadges } from "widgets.slint";
 import { AppState, ModItem } from "state.slint";
 import { InstanceTags } from "library.slint";
 
@@ -281,7 +281,7 @@ component PackTab inherits VerticalLayout {
                     VerticalLayout {
                         alignment: center;
                         spacing: 3px;
-                        Text { text: m.name + (m.is-me ? " (du)" : ""); color: Theme.fg; font-weight: 600; overflow: elide; }
+                        NameWithBadges { name: m.name + (m.is-me ? " (du)" : ""); owner: m.badge-owner; beta: m.badge-beta; }
                         HorizontalLayout {
                             spacing: 6px;
                             alignment: start;

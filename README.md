@@ -27,6 +27,8 @@ Oberfläche mit [Slint](https://slint.dev). Schnell, klein (rund 20 MB) und ohne
 - **Wer hat welche Version?** In der Mitgliederliste steht bei jedem die installierte Pack-Version (aktuell/veraltet)
 - **Update erzwingen:** Besitzer und Editoren können die neueste Version bei allen Mitgliedern automatisch installieren
   lassen, sobald deren Launcher läuft
+- **Freundes-Menü:** Profil ansehen, direkt in ein Pack einladen, entfernen
+- **Badges:** „Owner“ und „Beta Tester“ neben Namen; der Owner erzeugt Badge-Codes, die andere unter „Freunde“ einlösen
 - **Benachrichtigungen** für Anfragen, Pack-Updates, Einladungen und neue App-Versionen
 - **App-Updates** über GitHub-Releases mit Prüfsummen-Check, stille Installation und Neustart
 

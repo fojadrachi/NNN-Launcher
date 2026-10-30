@@ -130,6 +130,19 @@ fn main() -> Result<(), slint::PlatformError> {
         open_join(&ui, &link);
     }
     if let Some(dir) = shot_dir {
+        // Entwickler-Builds: mit Testkonto am Testserver anmelden, ohne die echte Anmeldung zu speichern
+        #[cfg(debug_assertions)]
+        if let Ok(login) = std::env::var("NNN_SHOT_LOGIN") {
+            let (u, pw) = login.split_once(':').unwrap_or((login.as_str(), ""));
+            let (u, pw) = (u.to_string(), pw.to_string());
+            ctrl.spawn(move |c| async move {
+                if let Ok(r) = api::login(&u, &pw).await {
+                    c.dev_login(r.token, r.user);
+                    c.refresh_server().await;
+                    c.load_badge_codes().await;
+                }
+            });
+        }
         screenshot_tour(&ui, dir);
     }
 
@@ -148,6 +161,8 @@ fn screenshot_tour(ui: &AppWindow, dir: String) {
         ("discover", "", ""),
         ("discover", "", "shader"),
         ("friends", "", ""),
+        ("friends", "", "menu"),
+        ("friends", "", "profile"),
         ("settings", "", ""),
         ("library", "", "notif"),
         ("library", "", "new-instance"),
@@ -173,6 +188,12 @@ fn screenshot_tour(ui: &AppWindow, dir: String) {
         let (page, tab, extra) = steps[i];
         s.set_notif_open(extra == "notif");
         s.set_modal(if extra == "new-instance" { "new-instance".into() } else { "".into() });
+        if extra == "profile" {
+            if let Some(f) = s.get_friends().row_data(0) {
+                s.set_profile(f);
+                s.set_modal("profile".into());
+            }
+        }
         if page == "instance" {
             // NNN_SHOT_INSTANCE wählt eine bestimmte Instanz, sonst die erste
             let wanted = std::env::var("NNN_SHOT_INSTANCE").ok();
@@ -324,6 +345,10 @@ fn wire(ui: &AppWindow, ctrl: &app::C) {
         c.toggle_item(id.into(), instances::Kind::from_str(&kind), file.into(), enabled)
     });
     on!(on_content_filter_changed, |c| c.refresh());
+    on!(on_redeem_badge, |c, code: slint::SharedString| c.redeem_badge(code.into()));
+    on!(on_create_badge_code, |c, uses: i32, days: i32| c.create_badge_code(uses, days));
+    on!(on_delete_badge_code, |c, code: slint::SharedString| c.delete_badge_code(code.into()));
+    on!(on_load_badge_codes, |c| c.spawn(|c| async move { c.load_badge_codes().await }));
     on!(on_open_folder, |_c, id: slint::SharedString| {
         let dir = instances::game_dir(&id);
         let _ = std::fs::create_dir_all(&dir);
