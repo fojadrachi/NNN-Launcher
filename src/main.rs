@@ -133,13 +133,13 @@ fn main() -> Result<(), slint::PlatformError> {
         c.refresh_server().await;
         c.check_update(false).await;
     });
-    // P2P-Knoten starten, eigene Dateien anbieten und fehlende nachladen (jede Minute)
+    // P2P-Knoten starten, eigene Dateien anbieten und fehlende nachladen (alle 5 Minuten)
     if !dev || (std::env::var_os("NNN_UI_SCRIPT").is_some() && std::env::var_os("NNN_NO_P2P").is_none()) {
         ctrl.spawn(|c| async move {
             let _ = p2p::start().await;
             loop {
                 c.p2p_tick().await;
-                tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+                tokio::time::sleep(std::time::Duration::from_secs(300)).await;
             }
         });
     }
@@ -148,7 +148,10 @@ fn main() -> Result<(), slint::PlatformError> {
         loop {
             tokio::time::sleep(std::time::Duration::from_secs(30)).await;
             tick += 1;
-            c.refresh_server().await;
+            // Server nur alle 2 Minuten fragen; nach eigenen Aktionen wird ohnehin sofort neu geladen
+            if tick % 4 == 0 {
+                c.refresh_server().await;
+            }
             // Offene Instanz regelmäßig scannen (unveränderte Dateien werden nicht neu gelesen)
             if let Some(id) = c.current_id() {
                 c.scan_instance(id, false);
