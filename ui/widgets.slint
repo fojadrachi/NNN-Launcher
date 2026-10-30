@@ -286,6 +286,7 @@ export component ProgressBar inherits Rectangle {
 export component Check inherits Rectangle {
     in-out property <bool> checked;
     in property <string> text;
+    callback toggled();
     height: 28px;
     HorizontalLayout {
         spacing: 10px;
@@ -305,7 +306,7 @@ export component Check inherits Rectangle {
         }
         Text { text: text; color: Theme.fg; font-size: 14px; vertical-alignment: center; }
     }
-    TouchArea { mouse-cursor: pointer; clicked => { root.checked = !root.checked; } }
+    TouchArea { mouse-cursor: pointer; clicked => { root.checked = !root.checked; root.toggled(); } }
 }
 
 export component Segmented inherits Rectangle {

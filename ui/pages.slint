@@ -393,7 +393,7 @@ export component SettingsPage inherits ScrollView {
         if AppState.ms-accounts.length > 0: HorizontalLayout { alignment: start; Button { text: "Weiteres Konto anmelden"; clicked => { AppState.modal = "ms-login"; AppState.ms-login(); } } }
 
         SectionTitle { text: "SPIELSTART"; }
-        Check { text: "Spiel direkt aus dem NNN Launcher starten"; checked <=> AppState.set-direct; }
+        Check { text: "Spiel direkt aus dem NNN Launcher starten"; checked <=> AppState.set-direct; toggled => { AppState.save-settings(); } }
         Text {
             text: AppState.set-direct
                 ? "Der NNN Launcher lädt die Spieldateien und startet Minecraft selbst mit dem aktiven Konto."

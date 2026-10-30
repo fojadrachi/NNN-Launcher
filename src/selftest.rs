@@ -132,6 +132,41 @@ pub fn run() -> i32 {
     }
 }
 
+/// Entwickler-Test: derselbe Ablauf wie „Spielen“ über den offiziellen Launcher, nur ohne ihn zu öffnen
+#[cfg(debug_assertions)]
+pub fn play_test() -> i32 {
+    std::env::set_var("NNN_DRY_LAUNCH", "1");
+    let rt = tokio::runtime::Runtime::new().expect("Tokio");
+    let s = crate::settings::load();
+    println!("launchMode {}", s.launch_mode);
+    for inst in instances::list() {
+        println!("Instanz {} ({}, {} {:?})", inst.id, inst.manifest.minecraft, inst.manifest.loader, inst.manifest.loader_version);
+        match rt.block_on(official::launch(&inst, s.memory_mb, &s.jvm_args, &s.official_launcher_path, &|p| println!("  {p}"))) {
+            Ok(r) => println!("  OK {}", r.profile),
+            Err(e) => println!("  FEHLER {e:#}"),
+        }
+    }
+    0
+}
+
+/// Entwickler-Test der Anmeldekette: speichert nichts und gibt nur Name oder Fehler aus, nie Tokens.
+#[cfg(debug_assertions)]
+pub fn ms_test() -> i32 {
+    let rt = tokio::runtime::Runtime::new().expect("Tokio");
+    let cancel = std::sync::atomic::AtomicBool::new(false);
+    let res = rt.block_on(crate::msauth::login(|c| println!("CODE {} {}", c.user_code, c.url), &cancel));
+    match res {
+        Ok(a) => {
+            println!("OK Anmeldung vollständig, Java-Name: {}", a.name);
+            0
+        }
+        Err(e) => {
+            println!("FEHLER {e:#}");
+            1
+        }
+    }
+}
+
 /// Entwickler-Test des eigenen Spielstarts: legt eine Testinstanz an, startet sie offline und
 /// beendet das Spiel nach `secs` Sekunden wieder.
 #[cfg(debug_assertions)]

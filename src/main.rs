@@ -26,7 +26,19 @@ use std::os::windows::process::CommandExt;
 
 const PIPE: &str = r"\\.\pipe\NNNLauncher-DeepLink";
 
+/// Abstürze in logs\panic.log festhalten; die App läuft ohne Konsole
+fn log_panics() {
+    std::panic::set_hook(Box::new(|info| {
+        use std::io::Write;
+        let path = paths::logs().join("panic.log");
+        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
+            let _ = writeln!(f, "{} v{} {info}", chrono::Local::now().format("%Y-%m-%d %H:%M:%S"), net::VERSION);
+        }
+    }));
+}
+
 fn main() -> Result<(), slint::PlatformError> {
+    log_panics();
     #[cfg(debug_assertions)]
     {
         let args: Vec<String> = std::env::args().collect();
@@ -43,6 +55,18 @@ fn main() -> Result<(), slint::PlatformError> {
     if std::env::args().any(|a| a == "--synctest") {
         paths::ensure();
         std::process::exit(selftest::sync_test());
+    }
+    // Entwickler-Test: `--playtest` bereitet den offiziellen Start jeder Instanz vor, ohne ihn zu öffnen
+    #[cfg(debug_assertions)]
+    if std::env::args().nth(1).as_deref() == Some("--playtest") {
+        paths::ensure();
+        std::process::exit(selftest::play_test());
+    }
+    // Entwickler-Test: `--mstest` zeigt den Microsoft-Code und meldet, wie weit die Anmeldung kommt
+    #[cfg(debug_assertions)]
+    if std::env::args().nth(1).as_deref() == Some("--mstest") {
+        paths::ensure();
+        std::process::exit(selftest::ms_test());
     }
     // Entwickler-Test: `--gametest <loader> <mc> <loader-version> <sekunden>` startet das Spiel offline
     #[cfg(debug_assertions)]

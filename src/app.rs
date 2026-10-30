@@ -68,6 +68,8 @@ pub struct Data {
     /// Laufender Geräte-Login: Code und Adresse
     ms_code: Option<msauth::DeviceCode>,
     ms_cancel: Option<Arc<AtomicBool>>,
+    /// Grund für eine fehlgeschlagene Anmeldung, bleibt im Dialog stehen
+    ms_error: String,
 }
 
 pub struct Ctrl {
@@ -92,6 +94,10 @@ impl Ctrl {
             d.ms_accounts = vec![("test".into(), name)];
             d.ms_selected = Some("test".into());
         }
+        #[cfg(debug_assertions)]
+        if let Ok(e) = std::env::var("NNN_SHOT_MS_ERROR") {
+            d.ms_error = e;
+        }
         if let Some((token, user)) = session::load() {
             api::set_token(Some(token));
             d.notif = settings::load_notifs(user.id);
@@ -100,7 +106,8 @@ impl Ctrl {
         Arc::new(Ctrl { data: Mutex::new(d), ui, rt, refresh_pending: Mutex::new(false) })
     }
 
-    fn with<R>(&self, f: impl FnOnce(&mut Data) -> R) -> R { f(&mut self.data.lock().unwrap()) }
+    // Ein Absturz in einer Hintergrundaufgabe darf den Rest der App nicht lahmlegen
+    fn with<R>(&self, f: impl FnOnce(&mut Data) -> R) -> R { f(&mut self.data.lock().unwrap_or_else(|e| e.into_inner())) }
 
     pub fn spawn<F>(self: &C, f: impl FnOnce(C) -> F + Send + 'static)
     where
@@ -113,7 +120,7 @@ impl Ctrl {
     /// UI neu befüllen (gebündelt, höchstens ~30× pro Sekunde)
     pub fn refresh(self: &C) {
         {
-            let mut p = self.refresh_pending.lock().unwrap();
+            let mut p = self.refresh_pending.lock().unwrap_or_else(|e| e.into_inner());
             if *p {
                 return;
             }
@@ -122,8 +129,8 @@ impl Ctrl {
         let c = self.clone();
         self.rt.spawn(async move {
             tokio::time::sleep(std::time::Duration::from_millis(30)).await;
-            *c.refresh_pending.lock().unwrap() = false;
-            let d = c.data.lock().unwrap().clone();
+            *c.refresh_pending.lock().unwrap_or_else(|e| e.into_inner()) = false;
+            let d = c.with(|d| d.clone());
             let c2 = c.clone();
             let _ = c.ui.upgrade_in_event_loop(move |ui| apply(&c2, &ui, &d));
         });
@@ -654,6 +661,7 @@ impl Ctrl {
         let cancel = Arc::new(AtomicBool::new(false));
         self.with(|d| {
             d.ms_code = None;
+            d.ms_error.clear();
             d.ms_cancel = Some(cancel.clone());
             // Dialog bleibt offen, bis der Login endet oder abgebrochen wird
             d.modal_busy = true;
@@ -675,15 +683,18 @@ impl Ctrl {
                 d.ms_cancel = None;
                 d.modal_busy = false;
             });
-            let _ = c.ui.upgrade_in_event_loop(|ui| ui.global::<AppState>().set_modal("".into()));
             match res {
                 Ok(acc) => {
+                    let _ = c.ui.upgrade_in_event_loop(|ui| ui.global::<AppState>().set_modal("".into()));
                     c.want_image(&avatar_url(&acc.name));
                     c.toast(format!("Angemeldet als {}", acc.name), "");
                     session::upsert_account(acc);
                     c.reload_accounts();
                 }
-                Err(e) => c.fail(e),
+                Err(e) => {
+                    c.with(|d| d.ms_error = format!("{e:#}"));
+                    c.refresh();
+                }
             }
         });
     }
@@ -694,6 +705,7 @@ impl Ctrl {
                 flag.store(true, Ordering::SeqCst);
             }
             d.ms_code = None;
+            d.ms_error.clear();
             d.modal_busy = false;
         });
         self.refresh();
@@ -743,11 +755,14 @@ impl Ctrl {
         self.spawn(move |c| async move {
             let s = c.with(|d| d.settings.clone());
             if s.launch_mode == "direct" {
-                if let Err(e) = c.play_direct(inst, s).await {
-                    c.fail(e);
+                if c.with(|d| d.ms_selected.is_some() && !d.ms_accounts.is_empty()) {
+                    if let Err(e) = c.play_direct(inst, s).await {
+                        c.fail(e);
+                    }
+                    c.set_busy(&id, None);
+                    return;
                 }
-                c.set_busy(&id, None);
-                return;
+                c.toast("Kein Minecraft-Konto angemeldet – Start über den offiziellen Launcher", "warn");
             }
             let progress = c.progress_fn(&id);
             match official::launch(&inst, s.memory_mb, &s.jvm_args, &s.official_launcher_path, &progress).await {
@@ -1629,6 +1644,7 @@ fn apply(c: &C, ui: &AppWindow, d: &Data) {
     s.set_ms_active(d.ms_accounts.iter().find(|a| d.ms_selected.as_ref() == Some(&a.0)).map(|a| a.1.clone()).unwrap_or_default().into());
     s.set_ms_code(d.ms_code.as_ref().map(|m| m.user_code.clone()).unwrap_or_default().into());
     s.set_ms_url(d.ms_code.as_ref().map(|m| m.url.clone()).unwrap_or_default().into());
+    s.set_ms_error(d.ms_error.clone().into());
     s.set_username(user.map(|u| u.username.clone()).unwrap_or_default().into());
     s.set_server_online(d.server_online);
     let (av, has) = image_of(d, user.map(|u| avatar_url(&u.username)).as_deref());
