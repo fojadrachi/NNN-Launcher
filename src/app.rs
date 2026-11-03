@@ -754,7 +754,7 @@ impl Ctrl {
         self.set_busy(&id, Some(("Vorbereiten", -1.0)));
         self.spawn(move |c| async move {
             let s = c.with(|d| d.settings.clone());
-            if s.launch_mode == "direct" {
+            if msauth::ENABLED && s.launch_mode == "direct" {
                 if c.with(|d| d.ms_selected.is_some() && !d.ms_accounts.is_empty()) {
                     if let Err(e) = c.play_direct(inst, s).await {
                         c.fail(e);

@@ -7,6 +7,10 @@ use anyhow::{anyhow, bail, Result};
 use serde_json::{json, Value};
 use std::sync::atomic::{AtomicBool, Ordering};
 
+/// Mojang hat die App-ID nicht freigeschaltet (Absage vom 2026-11-03). Solange bleiben Microsoft-Login
+/// und eigener Spielstart ausgeblendet; gespielt wird über den offiziellen Launcher.
+pub const ENABLED: bool = false;
+
 /// Azure-App des NNN Launchers (öffentliche ID, kein Geheimnis)
 pub const CLIENT_ID: &str = "c6466e75-37cd-4757-ad38-912e360eacbe";
 const SCOPE: &str = "XboxLive.signin offline_access";

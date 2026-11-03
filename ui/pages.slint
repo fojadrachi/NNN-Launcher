@@ -360,37 +360,40 @@ export component SettingsPage inherits ScrollView {
 
         PageHead { a: ""; b: "Einstellungen"; }
 
-        SectionTitle { text: "MINECRAFT-KONTO"; }
-        if AppState.ms-accounts.length == 0: Text {
-            text: "Nötig, wenn der NNN Launcher das Spiel selbst startet. Die Anmeldung läuft über Microsoft, der Launcher speichert dein Passwort nicht.";
-            color: Theme.mut;
-            font-size: 13px;
-            wrap: word-wrap;
-        }
-        for a in AppState.ms-accounts: Card {
-            height: 60px;
-            HorizontalLayout {
-                padding-left: 14px;
-                padding-right: 14px;
-                spacing: 12px;
-                VerticalLayout { alignment: center; Thumb { img: a.avatar; has-img: a.has-avatar; fallback: a.name; size: 36px; round: true; } }
-                VerticalLayout {
-                    alignment: center;
-                    horizontal-stretch: 1;
-                    spacing: 2px;
-                    Text { text: a.name; color: Theme.fg; font-size: 15px; font-weight: 600; }
-                    Text { text: "Minecraft: Java Edition"; color: Theme.mut; font-size: 12px; }
-                }
-                if a.active: VerticalLayout { alignment: center; Tag { text: "Aktiv"; kind: "good"; } }
-                if !a.active: VerticalLayout { alignment: center; Button { text: "Verwenden"; clicked => { AppState.ms-select(a.id); } } }
-                VerticalLayout { alignment: center; Button { text: "Entfernen"; clicked => { AppState.ms-remove(a.id); } } }
+        if AppState.ms-enabled: VerticalLayout {
+            spacing: 14px;
+            SectionTitle { text: "MINECRAFT-KONTO"; }
+            if AppState.ms-accounts.length == 0: Text {
+                text: "Nötig, wenn der NNN Launcher das Spiel selbst startet. Die Anmeldung läuft über Microsoft, der Launcher speichert dein Passwort nicht.";
+                color: Theme.mut;
+                font-size: 13px;
+                wrap: word-wrap;
             }
+            for a in AppState.ms-accounts: Card {
+                height: 60px;
+                HorizontalLayout {
+                    padding-left: 14px;
+                    padding-right: 14px;
+                    spacing: 12px;
+                    VerticalLayout { alignment: center; Thumb { img: a.avatar; has-img: a.has-avatar; fallback: a.name; size: 36px; round: true; } }
+                    VerticalLayout {
+                        alignment: center;
+                        horizontal-stretch: 1;
+                        spacing: 2px;
+                        Text { text: a.name; color: Theme.fg; font-size: 15px; font-weight: 600; }
+                        Text { text: "Minecraft: Java Edition"; color: Theme.mut; font-size: 12px; }
+                    }
+                    if a.active: VerticalLayout { alignment: center; Tag { text: "Aktiv"; kind: "good"; } }
+                    if !a.active: VerticalLayout { alignment: center; Button { text: "Verwenden"; clicked => { AppState.ms-select(a.id); } } }
+                    VerticalLayout { alignment: center; Button { text: "Entfernen"; clicked => { AppState.ms-remove(a.id); } } }
+                }
+            }
+            if AppState.ms-accounts.length == 0: HorizontalLayout { alignment: start; Button { text: "Mit Microsoft anmelden"; kind: "primary"; clicked => { AppState.modal = "ms-login"; AppState.ms-login(); } } }
+            if AppState.ms-accounts.length > 0: HorizontalLayout { alignment: start; Button { text: "Weiteres Konto anmelden"; clicked => { AppState.modal = "ms-login"; AppState.ms-login(); } } }
         }
-        if AppState.ms-accounts.length == 0: HorizontalLayout { alignment: start; Button { text: "Mit Microsoft anmelden"; kind: "primary"; clicked => { AppState.modal = "ms-login"; AppState.ms-login(); } } }
-        if AppState.ms-accounts.length > 0: HorizontalLayout { alignment: start; Button { text: "Weiteres Konto anmelden"; clicked => { AppState.modal = "ms-login"; AppState.ms-login(); } } }
 
         SectionTitle { text: "SPIELSTART"; }
-        Check { text: "Spiel direkt aus dem NNN Launcher starten"; checked <=> AppState.set-direct; toggled => { AppState.save-settings(); } }
+        if AppState.ms-enabled: Check { text: "Spiel direkt aus dem NNN Launcher starten"; checked <=> AppState.set-direct; toggled => { AppState.save-settings(); } }
         Text {
             text: AppState.set-direct
                 ? "Der NNN Launcher lädt die Spieldateien und startet Minecraft selbst mit dem aktiven Konto."

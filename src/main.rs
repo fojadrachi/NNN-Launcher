@@ -129,7 +129,8 @@ fn main() -> Result<(), slint::PlatformError> {
     state.set_set_jvm(s.jvm_args.into());
     state.set_set_launcher(s.official_launcher_path.into());
     state.set_set_close(s.close_on_launch);
-    state.set_set_direct(s.launch_mode == "direct");
+    state.set_ms_enabled(msauth::ENABLED);
+    state.set_set_direct(msauth::ENABLED && s.launch_mode == "direct");
     ctrl.load_account_images();
     ctrl.refresh();
 

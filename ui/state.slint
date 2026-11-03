@@ -151,6 +151,8 @@ export global AppState {
     in property <bool> my-badge-owner;
     in property <bool> my-badge-beta;
     // Minecraft-Konten (Microsoft)
+    // Microsoft-Login und eigener Spielstart (aus, solange Mojang die App nicht freigibt)
+    in property <bool> ms-enabled: false;
     in property <[MsAccountItem]> ms-accounts;
     in property <string> ms-active;
     in property <string> ms-code;
