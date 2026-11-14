@@ -180,9 +180,8 @@ async fn install_forge_like(url: &str, mc: &str, progress: &(dyn Fn(String) + Se
 }
 
 async fn run_java(java: &std::path::Path, args: &[&str]) -> Result<(bool, String)> {
-    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
     let mut cmd = tokio::process::Command::new(java);
-    cmd.args(args).current_dir(paths::cache()).creation_flags(CREATE_NO_WINDOW);
+    crate::platform::quiet_async(cmd.args(args).current_dir(paths::cache()));
     let out = cmd.output().await?;
     let text = format!("{}\n{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
     Ok((out.status.success(), text))

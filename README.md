@@ -40,6 +40,7 @@ Der Launcher spricht ausschließlich mit `https://launcher.nnn-server.de`.
 
 Alles liegt in `%APPDATA%\NNN Launcher`: Instanzen, Minecraft-Ordner für den offiziellen Launcher,
 Java für die Forge-/NeoForge-Installer, Logs. Die Anmeldung ist per Windows-DPAPI verschlüsselt.
+Unter Linux liegt alles in `~/.local/share/NNN Launcher`, die Anmeldung ist dort nur für den eigenen Benutzer lesbar.
 
 ## Bauen
 
@@ -57,6 +58,14 @@ Release mit Setup (braucht zusätzlich Inno Setup 6):
 
 Das erzeugt `dist\NNN-Launcher-Setup-<Version>.exe` und die portable `dist\NNN-Launcher-<Version>-win-x64.exe`.
 Beide als GitHub-Release mit Tag `v<Version>` hochladen – der Launcher findet das Setup über `releases/latest`.
+
+Linux-Version (in WSL oder unter Linux, `ZIG=1` baut mit Zig gegen glibc 2.31 für ältere Distributionen):
+
+```bash
+ZIG=1 bash build-linux.sh
+```
+
+Das erzeugt `dist/NNN-Launcher-<Version>-linux-x64.tar.gz`; ebenfalls an das Release hängen, das Linux-Update sucht genau diesen Namen.
 
 Selbsttest ohne Oberfläche (Ergebnis in `%APPDATA%\NNN Launcher\logs\selftest.log`):
 

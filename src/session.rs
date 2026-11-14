@@ -3,7 +3,9 @@
 
 use crate::paths;
 use serde::{Deserialize, Serialize};
+#[cfg(windows)]
 use windows_sys::Win32::Foundation::LocalFree;
+#[cfg(windows)]
 use windows_sys::Win32::Security::Cryptography::{CryptProtectData, CryptUnprotectData, CRYPT_INTEGER_BLOB};
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
@@ -83,7 +85,9 @@ pub fn save(token: Option<&str>, user: Option<&User>) {
     s.server_user = user.cloned();
     if let Ok(raw) = serde_json::to_vec(&s) {
         if let Some(enc) = protect(&raw) {
-            let _ = std::fs::write(file(), enc);
+            if std::fs::write(file(), enc).is_ok() {
+                crate::platform::make_private(&file());
+            }
         }
     }
 }
@@ -94,7 +98,9 @@ fn write_store(s: &Store) {
     }
     if let Ok(raw) = serde_json::to_vec(s) {
         if let Some(enc) = protect(&raw) {
-            let _ = std::fs::write(file(), enc);
+            if std::fs::write(file(), enc).is_ok() {
+                crate::platform::make_private(&file());
+            }
         }
     }
 }
@@ -133,10 +139,19 @@ pub fn select_account(id: &str) {
     }
 }
 
+// Linux hat kein DPAPI: die Datei ist nur für den eigenen Benutzer lesbar (0600)
+#[cfg(not(windows))]
+fn protect(data: &[u8]) -> Option<Vec<u8>> { Some(data.to_vec()) }
+
+#[cfg(not(windows))]
+fn unprotect(data: &[u8]) -> Option<Vec<u8>> { Some(data.to_vec()) }
+
+#[cfg(windows)]
 fn blob(data: &[u8]) -> CRYPT_INTEGER_BLOB {
     CRYPT_INTEGER_BLOB { cbData: data.len() as u32, pbData: data.as_ptr() as *mut u8 }
 }
 
+#[cfg(windows)]
 fn take(out: CRYPT_INTEGER_BLOB) -> Vec<u8> {
     // SAFETY: von DPAPI allokierter Puffer der angegebenen Länge, danach freigegeben
     unsafe {
@@ -146,6 +161,7 @@ fn take(out: CRYPT_INTEGER_BLOB) -> Vec<u8> {
     }
 }
 
+#[cfg(windows)]
 fn protect(data: &[u8]) -> Option<Vec<u8>> {
     let input = blob(data);
     let mut out = CRYPT_INTEGER_BLOB { cbData: 0, pbData: std::ptr::null_mut() };
@@ -154,6 +170,7 @@ fn protect(data: &[u8]) -> Option<Vec<u8>> {
     (ok != 0).then(|| take(out))
 }
 
+#[cfg(windows)]
 fn unprotect(data: &[u8]) -> Option<Vec<u8>> {
     let input = blob(data);
     let mut out = CRYPT_INTEGER_BLOB { cbData: 0, pbData: std::ptr::null_mut() };

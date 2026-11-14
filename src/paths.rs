@@ -8,14 +8,27 @@ static ROOT: OnceLock<PathBuf> = OnceLock::new();
 
 pub fn root() -> &'static Path {
     ROOT.get_or_init(|| {
-        let appdata = std::env::var_os("APPDATA").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("."));
-        let root = appdata.join("NNN Launcher");
-        let old = appdata.join("PackLink");
-        // Sehr alte Installationen hießen PackLink: einmalig übernehmen
-        if !root.exists() && old.exists() && std::fs::rename(&old, &root).is_err() {
-            return old;
+        #[cfg(windows)]
+        {
+            let appdata = std::env::var_os("APPDATA").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("."));
+            let root = appdata.join("NNN Launcher");
+            let old = appdata.join("PackLink");
+            // Sehr alte Installationen hießen PackLink: einmalig übernehmen
+            if !root.exists() && old.exists() && std::fs::rename(&old, &root).is_err() {
+                return old;
+            }
+            root
         }
-        root
+        // Linux: ~/.local/share/NNN Launcher (bzw. $XDG_DATA_HOME)
+        #[cfg(not(windows))]
+        {
+            let data = std::env::var_os("XDG_DATA_HOME")
+                .map(PathBuf::from)
+                .filter(|p| p.is_absolute())
+                .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local").join("share")))
+                .unwrap_or_else(|| PathBuf::from("."));
+            data.join("NNN Launcher")
+        }
     })
 }
 

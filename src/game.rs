@@ -3,7 +3,7 @@
 
 use crate::instances::{self, Instance};
 use crate::session::Account;
-use crate::{loaders, minecraft, msauth, net, official, paths};
+use crate::{loaders, minecraft, msauth, net, official, paths, platform};
 use anyhow::{anyhow, bail, Context, Result};
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
@@ -13,7 +13,6 @@ use std::sync::{Arc, Mutex};
 use tokio::io::{AsyncBufReadExt, AsyncRead, BufReader};
 
 const RESOURCES: &str = "https://resources.download.minecraft.net/";
-const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
 pub type Progress = Arc<dyn Fn(String) + Send + Sync>;
 
@@ -115,7 +114,7 @@ fn rules_allow(rules: &Value) -> bool {
     let mut allowed = false;
     for rule in rules {
         let os = &rule["os"];
-        let mut hit = os["name"].as_str().is_none_or(|n| n == "windows") && os["arch"].as_str().is_none_or(|a| a == "x86_64");
+        let mut hit = os["name"].as_str().is_none_or(|n| n == platform::OS_NAME) && os["arch"].as_str().is_none_or(|a| a == "x86_64");
         if let Some(v) = os["version"].as_str() {
             hit &= regex::Regex::new(v).is_ok_and(|r| r.is_match("10.0"));
         }
@@ -155,7 +154,7 @@ fn library_files(v: &Version) -> Vec<LibFile> {
         let downloads = &lib["downloads"];
 
         // Klassische Natives (bis 1.18): eigene Classifier-Jars, die entpackt werden
-        if let Some(nat) = lib["natives"]["windows"].as_str() {
+        if let Some(nat) = lib["natives"][platform::OS_NAME].as_str() {
             let cls = nat.replace("${arch}", "64");
             let c = &downloads["classifiers"][&cls];
             if c.is_object() {
@@ -359,7 +358,7 @@ pub async fn launch(inst: &Instance, acc: &Account, memory_mb: u32, extra: &str,
     let mut seen = HashSet::new();
     let mut cp: Vec<String> = libs.iter().filter(|l| !l.native).map(|l| l.path.display().to_string()).filter(|p| seen.insert(p.to_lowercase())).collect();
     cp.push(version_jar(&v).display().to_string());
-    let classpath = cp.join(";");
+    let classpath = cp.join(platform::CLASSPATH_SEP);
 
     let token = acc.access_token.clone().unwrap_or_else(|| "0".into());
     let vars: HashMap<&str, String> = HashMap::from([
@@ -381,7 +380,7 @@ pub async fn launch(inst: &Instance, acc: &Account, memory_mb: u32, extra: &str,
         ("launcher_name", "NNN Launcher".to_string()),
         ("launcher_version", net::VERSION.to_string()),
         ("classpath", classpath.clone()),
-        ("classpath_separator", ";".to_string()),
+        ("classpath_separator", platform::CLASSPATH_SEP.to_string()),
         ("library_directory", paths::libraries().display().to_string()),
     ]);
 
@@ -407,12 +406,7 @@ pub async fn launch(inst: &Instance, acc: &Account, memory_mb: u32, extra: &str,
     let mut log = std::fs::File::create(&log_path)?;
     std::io::Write::write_all(&mut log, format!("[NNN] Starte {} als {} mit {}\n", v.id, acc.name, java.display()).as_bytes())?;
 
-    let mut child = tokio::process::Command::new(&java)
-        .args(&args)
-        .current_dir(&game)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .creation_flags(CREATE_NO_WINDOW)
+    let mut child = platform::quiet_async(tokio::process::Command::new(&java).args(&args).current_dir(&game).stdout(Stdio::piped()).stderr(Stdio::piped()))
         .spawn()
         .context("Java konnte nicht gestartet werden")?;
     let log = Arc::new(Mutex::new(log));

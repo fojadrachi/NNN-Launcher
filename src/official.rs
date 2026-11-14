@@ -5,11 +5,12 @@ use crate::instances::{self, Instance};
 use crate::{loaders, net, paths};
 use anyhow::{bail, Result};
 use serde_json::{json, Map, Value};
-use std::os::windows::process::CommandExt;
 use std::path::PathBuf;
 
+#[cfg(windows)]
 const DOWNLOAD_URL: &str = "https://launcher.mojang.com/download/Minecraft.exe";
-const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+#[cfg(not(windows))]
+const DOWNLOAD_URL: &str = "https://launcher.mojang.com/download/Minecraft.tar.gz";
 
 pub struct Launched {
     pub profile: String,
@@ -26,7 +27,7 @@ pub async fn launch(inst: &Instance, memory_mb: u32, extra_args: &str, launcher_
     let name = format!("NNN: {}", inst.name);
     write_profile(&inst.id, &name, &version_id, inst.memory_mb.unwrap_or(memory_mb), extra_args)?;
 
-    let already_running = process_running("MinecraftLauncher.exe") || process_running("Minecraft.exe");
+    let already_running = launcher_running();
     // Selbsttest: alles vorbereiten, aber den Launcher nicht öffnen
     if std::env::var_os("NNN_DRY_LAUNCH").is_some() {
         return Ok(Launched { profile: format!("{name} ({version_id}, {})", exe.display()), already_running });
@@ -43,15 +44,26 @@ pub async fn launch(inst: &Instance, memory_mb: u32, extra_args: &str, launcher_
     Ok(Launched { profile: name, already_running })
 }
 
+#[cfg(windows)]
+fn launcher_running() -> bool { process_running("MinecraftLauncher.exe") || process_running("Minecraft.exe") }
+
+#[cfg(not(windows))]
+fn launcher_running() -> bool {
+    std::process::Command::new("pgrep").args(["-f", "minecraft-launcher"]).output().map(|o| o.status.success()).unwrap_or(false)
+}
+
+#[cfg(windows)]
 fn process_running(name: &str) -> bool {
+    use std::os::windows::process::CommandExt;
     std::process::Command::new("tasklist")
         .args(["/FI", &format!("IMAGENAME eq {name}"), "/NH"])
-        .creation_flags(CREATE_NO_WINDOW)
+        .creation_flags(0x0800_0000)
         .output()
         .map(|o| String::from_utf8_lossy(&o.stdout).to_lowercase().contains(&name.to_lowercase()))
         .unwrap_or(false)
 }
 
+#[cfg(windows)]
 async fn find_or_download(custom: &str) -> Result<PathBuf> {
     if !custom.trim().is_empty() {
         let p = PathBuf::from(custom.trim());
@@ -80,15 +92,45 @@ async fn find_or_download(custom: &str) -> Result<PathBuf> {
     Ok(bundled)
 }
 
+/// Linux: installierten Launcher nutzen (Paket, PATH) oder Mojangs tar.gz einmalig entpacken
+#[cfg(not(windows))]
+async fn find_or_download(custom: &str) -> Result<PathBuf> {
+    if !custom.trim().is_empty() {
+        let p = PathBuf::from(custom.trim());
+        if !p.exists() {
+            bail!("Der eingestellte Minecraft Launcher wurde nicht gefunden: {}", p.display());
+        }
+        return Ok(p);
+    }
+    let dir = paths::root().join("launcher");
+    let bundled = dir.join("minecraft-launcher").join("minecraft-launcher");
+    let mut candidates = vec![bundled.clone(), PathBuf::from("/usr/bin/minecraft-launcher"), PathBuf::from("/opt/minecraft-launcher/minecraft-launcher")];
+    if let Some(p) = std::env::var_os("PATH") {
+        candidates.extend(std::env::split_paths(&p).map(|d| d.join("minecraft-launcher")));
+    }
+    if let Some(c) = candidates.into_iter().find(|c| c.is_file()) {
+        return Ok(c);
+    }
+    // Über HTTPS direkt von Mojang; unter Linux gibt es keine Authenticode-Signatur zum Prüfen
+    let archive = dir.join("Minecraft.tar.gz");
+    net::download_one(&net::DlItem { url: DOWNLOAD_URL.into(), path: archive.clone(), sha1: None, size: 0 }).await?;
+    let ok = std::process::Command::new("tar").arg("-xzf").arg(&archive).arg("-C").arg(&dir).status().map(|s| s.success()).unwrap_or(false);
+    let _ = std::fs::remove_file(&archive);
+    if !ok || !bundled.is_file() {
+        bail!("Minecraft Launcher konnte nicht entpackt werden (tar fehlt oder Download beschädigt)");
+    }
+    crate::platform::make_executable(&bundled);
+    Ok(bundled)
+}
+
 /// Signatur über Windows prüfen (Get-AuthenticodeSignature)
+#[cfg(windows)]
 fn signed_by_mojang(file: &std::path::Path) -> bool {
     let script = format!(
         "$s = Get-AuthenticodeSignature -LiteralPath '{}'; if ($s.Status -eq 'Valid') {{ $s.SignerCertificate.Subject }}",
         file.display().to_string().replace('\'', "''")
     );
-    std::process::Command::new("powershell")
-        .args(["-NoProfile", "-NonInteractive", "-Command", &script])
-        .creation_flags(CREATE_NO_WINDOW)
+    crate::platform::quiet(std::process::Command::new("powershell").args(["-NoProfile", "-NonInteractive", "-Command", &script]))
         .output()
         .map(|o| {
             let s = String::from_utf8_lossy(&o.stdout);
