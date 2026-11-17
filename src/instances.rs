@@ -501,14 +501,9 @@ where
         managed.push(o.path.clone());
     }
     // Erst alles laden, dann löschen – so bleibt die Instanz bei Fehlern spielbar.
-    // P2P-Dateien sind "best effort": Ist gerade niemand online, der sie hat, kommen sie später.
-    let (p2p_items, items): (Vec<_>, Vec<_>) = items.into_iter().partition(|i: &net::DlItem| i.url.starts_with(crate::p2p::SCHEME));
-    net::download_all(items, 8, progress).await?;
-    for item in p2p_items {
-        if !item.path.exists() {
-            let _ = net::download_one(&item).await;
-        }
-    }
+    // Alles zusammen parallel und mit Fortschritt. Eigene Dateien kommen meist vom NNN-Server;
+    // P2P ist "best effort": Ist gerade niemand online, der sie hat, kommen sie später.
+    net::download_all_lenient(items, 8, progress).await?;
     for o in &manifest.overrides {
         let p = paths::safe_join(&game, &o.path)?;
         if p.exists() && net::sha1_file(&p).ok().as_deref() == Some(o.sha1.as_str()) {

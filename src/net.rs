@@ -17,6 +17,8 @@ pub fn client() -> &'static reqwest::Client {
             .user_agent(format!("NNNLauncher/{VERSION} (github.com/fojadrachi/NNN-Launcher)"))
             .connect_timeout(std::time::Duration::from_secs(15))
             .timeout(std::time::Duration::from_secs(600))
+            // Hängt eine Verbindung, ohne dass Daten kommen, abbrechen und neu versuchen
+            .read_timeout(std::time::Duration::from_secs(45))
             .pool_max_idle_per_host(16)
             .build()
             .expect("HTTP-Client")
@@ -143,6 +145,22 @@ pub async fn download_all<F>(items: Vec<DlItem>, parallel: usize, progress: F) -
 where
     F: Fn(usize, usize) + Send + Sync + 'static,
 {
+    download_all_inner(items, parallel, progress, false).await.map(|_| ())
+}
+
+/// Wie `download_all`, aber Dateien von Freunden (P2P) sind „best effort“: Schlägt eine fehl,
+/// geht es mit den anderen weiter. Gibt die Zahl der fehlgeschlagenen P2P-Dateien zurück.
+pub async fn download_all_lenient<F>(items: Vec<DlItem>, parallel: usize, progress: F) -> Result<usize>
+where
+    F: Fn(usize, usize) + Send + Sync + 'static,
+{
+    download_all_inner(items, parallel, progress, true).await
+}
+
+async fn download_all_inner<F>(items: Vec<DlItem>, parallel: usize, progress: F, lenient_p2p: bool) -> Result<usize>
+where
+    F: Fn(usize, usize) + Send + Sync + 'static,
+{
     let mut seen = std::collections::HashSet::new();
     let todo: Vec<DlItem> = items
         .into_iter()
@@ -151,17 +169,25 @@ where
         .collect();
     let total = todo.len();
     if total == 0 {
-        return Ok(());
+        return Ok(0);
     }
     let done = Arc::new(AtomicUsize::new(0));
+    let failed = Arc::new(AtomicUsize::new(0));
     let progress = Arc::new(progress);
     progress(0, total);
     stream::iter(todo)
         .map(|item| {
             let done = done.clone();
+            let failed = failed.clone();
             let progress = progress.clone();
             async move {
-                download_one(&item).await?;
+                match download_one(&item).await {
+                    Ok(()) => {}
+                    Err(_) if lenient_p2p && item.url.starts_with(crate::p2p::SCHEME) => {
+                        failed.fetch_add(1, Ordering::SeqCst);
+                    }
+                    Err(e) => return Err(e),
+                }
                 let d = done.fetch_add(1, Ordering::SeqCst) + 1;
                 progress(d, total);
                 Ok::<_, anyhow::Error>(())
@@ -170,5 +196,5 @@ where
         .buffer_unordered(parallel.max(1))
         .try_collect::<Vec<_>>()
         .await?;
-    Ok(())
+    Ok(failed.load(Ordering::SeqCst))
 }

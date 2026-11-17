@@ -205,6 +205,9 @@ async fn from_server(pack: &str, sha1: &str, item: &net::DlItem) -> Result<bool>
     Ok(true)
 }
 
+/// So lange darf eine Übertragung ohne neue Daten stehen
+const IDLE: Duration = Duration::from_secs(45);
+
 async fn fetch_from(endpoint: &Endpoint, node: &str, pack: &str, sha1: &str, item: &net::DlItem) -> Result<()> {
     let id: EndpointId = node.parse().map_err(|_| anyhow!("ungültige Knoten-ID"))?;
     let conn = tokio::time::timeout(Duration::from_secs(25), endpoint.connect(id, ALPN))
@@ -217,7 +220,7 @@ async fn fetch_from(endpoint: &Endpoint, node: &str, pack: &str, sha1: &str, ite
 
     let mut reader = BufReader::new(recv);
     let mut header = String::new();
-    reader.read_line(&mut header).await?;
+    tokio::time::timeout(IDLE, reader.read_line(&mut header)).await.map_err(|_| anyhow!("keine Antwort"))??;
     let header = header.trim();
     if let Some(msg) = header.strip_prefix("ERR ") {
         bail!("{msg}");
@@ -233,7 +236,8 @@ async fn fetch_from(endpoint: &Endpoint, node: &str, pack: &str, sha1: &str, ite
     let mut buf = vec![0u8; 256 * 1024];
     let mut got = 0u64;
     loop {
-        let n = reader.read(&mut buf).await?;
+        // Kommen eine Weile keine Daten mehr, ist die Verbindung tot
+        let n = tokio::time::timeout(IDLE, reader.read(&mut buf)).await.map_err(|_| anyhow!("Übertragung hängt"))??;
         if n == 0 {
             break;
         }

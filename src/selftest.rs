@@ -167,6 +167,46 @@ pub fn r2_test() -> i32 {
         net::download_one(&item).await?;
         println!("Freund lädt ohne Anbieter, Prüfsumme korrekt: {}", net::sha1_file(&item.path)? == sha1);
         std::fs::remove_dir_all(&dir)?;
+
+        // Ganzes Pack mit vielen eigenen Dateien beitreten (wie „NNN Modpack“ mit 258 eigenen Dateien):
+        // 60 liegen auf dem Server, eine hat nur ein Freund, der gerade offline ist.
+        api::set_token(Some(account("r2ersteller").await?.token));
+        let mut entries = Vec::new();
+        for n in 0..61u32 {
+            let data: Vec<u8> = (0..300_000u32).map(|i| (i.wrapping_mul(2654435761).wrapping_add(n * 7919) >> 24) as u8).collect();
+            let name = format!("eigen-{n:02}.jar");
+            let p = inst.game_dir().join("mods").join(&name);
+            std::fs::write(&p, &data)?;
+            let s = net::sha1_bytes(&data);
+            if n < 60 {
+                api::upload_file(&pack.id, &s, &p).await?;
+            }
+            entries.push((Kind::Mod, instances::ModEntry {
+                source: "p2p".into(), project_id: s.clone(), version_id: s.clone(), name: name.clone(),
+                file_name: name, url: p2p::url(&pack.id, &s), sha1: Some(s), size: data.len() as u64, ..Default::default()
+            }));
+        }
+        let full = instances::adopt(&inst.id, entries, &[])?;
+        let v = api::push_version(&pack.id, 1, &instances::build_manifest(&full, false)?, "viele eigene Dateien").await?;
+        api::set_token(Some(account("r2freund").await?.token));
+        let latest = api::latest(&pack.id).await?;
+        let b = instances::create("R2 Freund", &latest.manifest.minecraft, &latest.manifest.loader, latest.manifest.loader_version.clone())?;
+        instances::link_pack(&b.id, &pack.id, 0, "member")?;
+        let last = std::sync::Arc::new(std::sync::Mutex::new((0usize, 0usize)));
+        let l2 = last.clone();
+        let t0 = std::time::Instant::now();
+        let b = tokio::time::timeout(
+            std::time::Duration::from_secs(180),
+            instances::apply_manifest(&b.id, latest.manifest, v, Some("member".into()), move |d, t| *l2.lock().unwrap() = (d, t)),
+        )
+        .await
+        .map_err(|_| anyhow::anyhow!("Pack-Download hängt"))??;
+        let have = (0..61).filter(|n| b.game_dir().join("mods").join(format!("eigen-{n:02}.jar")).exists()).count();
+        println!("Pack mit 61 eigenen Dateien: {have} da (erwartet 60), Fortschritt {:?}, {:.1} s", *last.lock().unwrap(), t0.elapsed().as_secs_f64());
+        if have != 60 {
+            anyhow::bail!("falsche Anzahl Dateien");
+        }
+        instances::delete(&b.id)?;
         instances::delete(&inst.id)?;
         api::set_token(Some(account("r2ersteller").await?.token));
         api::delete_pack(&pack.id).await?;
